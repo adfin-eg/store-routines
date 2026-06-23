@@ -419,7 +419,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
       if (savedDefault && savedDefault !== "undefined") {
         initialDefaultName = savedDefault;
       } else {
-        initialDefaultName = "";
+        // "All" is the default preset on launch when the user hasn't set another.
+        initialDefaultName = "All";
       }
     } catch (e) {
       console.error("Error loading default preset", e);

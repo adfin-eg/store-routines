@@ -15,6 +15,14 @@ interface QuickFilterPreset {
 
 const DEFAULT_COLUMN_IDS = STORE_ROUTINES_COLUMNS.map(c => c.id);
 
+// "All" preset order: same as default, but with "memberPrice" moved right after "promotionPrice".
+const ALL_COLUMN_IDS = (() => {
+  const ids = DEFAULT_COLUMN_IDS.filter(id => id !== "memberPrice");
+  const idx = ids.indexOf("promotionPrice");
+  if (idx !== -1) ids.splice(idx + 1, 0, "memberPrice");
+  return ids;
+})();
+
 const PROMOTIONS_FIRST_COLS = [
   "actions", "gtin", "itemText",
   "promotionPrice", "promotionPriceFlag", "mix", "memberOffer",
@@ -26,7 +34,7 @@ const PROMOTIONS_COLUMN_IDS = [
 ];
 
 const DEFAULT_QUICK_FILTER_PRESETS: QuickFilterPreset[] = [
-  { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: DEFAULT_COLUMN_IDS },
+  { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: ALL_COLUMN_IDS },
   { name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
   { name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
     const first = ["actions", "gtin", "itemText", "localValuesList", "retailPrice", "memberPrice"];
@@ -106,7 +114,7 @@ export const StoreRoutinesModule = ({
   const [activeTab, setActiveTab] = useState<string>("All");
   const [activePresetName, setActivePresetName] = useState<string>("All");
   const [quickFilterPresets, setQuickFilterPresets] = useState<QuickFilterPreset[]>(DEFAULT_QUICK_FILTER_PRESETS);
-  const [columnIds, setColumnIds] = useState<string[]>(DEFAULT_COLUMN_IDS);
+  const [columnIds, setColumnIds] = useState<string[]>(ALL_COLUMN_IDS);
   const [gridFilterCount, setGridFilterCount] = useState(0);
   const [gridFilters, setGridFilters] = useState<Record<string, string>>({});
   const [gridFilterModes, setGridFilterModes] = useState<Record<string, string>>({});
@@ -128,7 +136,7 @@ export const StoreRoutinesModule = ({
     setAttributeFilter("");
     setSelectedGroupIds(new Set());
     setExpandedGroupIds(new Set());
-    setColumnIds(DEFAULT_COLUMN_IDS);
+    setColumnIds(ALL_COLUMN_IDS);
     setActiveTab("All");
   };
 

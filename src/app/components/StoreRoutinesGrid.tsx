@@ -7,7 +7,7 @@ import svgPathsCalendar from "@/imports/svg-lbuqdinfsp";
 import { FilterMenu } from "@/app/components/FilterMenu";
 import * as Popover from "@radix-ui/react-popover";
 import { ColumnSelector } from "@/app/components/ColumnSelector";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 
 const LOCAL_FIELDS = [
   "Alarm item", "Auto replenishment", "Available in store", "Best before",
@@ -90,23 +90,16 @@ function PromotionTypeDropdown({ value, onChange }: { value: string; onChange: (
   );
 }
 
-function LocalValuesMultiselect({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+function LocalValuesDropdown({ value, onChange }: { value: string; onChange: (val: string) => void }) {
   const [isOpen, setIsOpen] = useState(false);
-  const selected = useMemo(() => new Set(value.split("|").filter(Boolean)), [value]);
-  const toggle = (field: string) => {
-    const next = new Set(selected);
-    if (next.has(field)) next.delete(field); else next.add(field);
-    onChange(Array.from(next).join("|"));
-  };
   const clear = (e: React.MouseEvent) => { e.stopPropagation(); onChange(""); };
-  const displayText = selected.size === 0 ? "" : selected.size === 1 ? Array.from(selected)[0] : `${selected.size} selected`;
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
       <Popover.Trigger asChild>
         <div className="w-full h-[30px] bg-white border border-[#CCCCCC] flex items-center pl-2 pr-1 cursor-pointer gap-1 select-none">
-          <span className="flex-1 text-[14px] text-[#1A1A1A] truncate min-w-0 font-normal text-left">{displayText}</span>
-          {selected.size > 0 && (
-            <button onClick={clear} className="shrink-0 size-[20px] flex items-center justify-center hover:bg-[#F7F7F7] rounded-full">
+          <span className="flex-1 text-[14px] text-[#1A1A1A] truncate min-w-0 font-normal text-left">{value}</span>
+          {value && (
+            <button onMouseDown={(e) => e.preventDefault()} onClick={clear} className="shrink-0 size-[20px] flex items-center justify-center hover:bg-[#F7F7F7] rounded-full">
               <X className="size-3.5 stroke-[2.5px] text-[#1A1A1A]" />
             </button>
           )}
@@ -121,14 +114,11 @@ function LocalValuesMultiselect({ value, onChange }: { value: string; onChange: 
           style={{ width: "var(--radix-popover-trigger-width)" }}>
           <div className="flex flex-col py-1 max-h-[224px] overflow-y-auto">
             {LOCAL_FIELDS.map((field) => {
-              const isChecked = selected.has(field);
+              const isSelected = value === field;
               return (
-                <button key={field} onClick={() => toggle(field)} onMouseDown={(e) => e.preventDefault()}
-                  className={`text-left text-[14px] font-normal text-[#1A1A1A] relative outline-none cursor-pointer flex items-center h-[36px] min-h-[36px] w-[calc(100%-2px)] ml-[1px] px-[16px] hover:bg-[#EAEAEA] focus:bg-[#EAEAEA] gap-2 ${isChecked ? "bg-[#FFFFFF] border-[2px] border-[#373737] px-[14px]" : "bg-white"}`}>
-                  <div className={`shrink-0 w-[16px] h-[16px] border flex items-center justify-center ${isChecked ? "bg-[#373737] border-[#373737]" : "border-[#CCCCCC] bg-white"}`}>
-                    {isChecked && <Check className="w-[11px] h-[11px] text-white stroke-[3px]" />}
-                  </div>
-                  <span className={isChecked ? "-ml-[2px]" : ""}>{field}</span>
+                <button key={field} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(isSelected ? "" : field); setIsOpen(false); }}
+                  className={`text-left text-[14px] font-normal text-[#1A1A1A] relative outline-none cursor-pointer flex items-center h-[36px] min-h-[36px] w-[calc(100%-2px)] ml-[1px] px-[16px] hover:bg-[#EAEAEA] ${isSelected ? "bg-[#FFFFFF] border-[2px] border-[#373737] px-[14px]" : "bg-white"}`}>
+                  <span className={isSelected ? "-ml-[2px]" : ""}>{field}</span>
                 </button>
               );
             })}
@@ -667,7 +657,7 @@ export const StoreRoutinesGrid = React.forwardRef<StoreRoutinesGridHandle, Store
                       <div className="flex items-center gap-1 h-full py-2">
                         <div className="relative flex-1">
                           {col.id === "localValuesList" ? (
-                            <LocalValuesMultiselect
+                            <LocalValuesDropdown
                               value={filters[col.id] || ""}
                               onChange={(val) => setFilters({ ...filters, [col.id]: val })}
                             />
