@@ -812,17 +812,17 @@ export const StoreRoutinesGrid = React.forwardRef<StoreRoutinesGridHandle, Store
                     onClick={(e) => handleRowClick(e, index, row)}
                     onDoubleClick={() => handleRowDoubleClick(row, index)}
                     className={`h-[40px] group ${
-                      isSelected ? "bg-[#D2F6E8]" : "bg-white hover:bg-[#F7F7F7]"
+                      isSelected ? "bg-[#E8EBED]" : "bg-white hover:bg-[#F7F7F7]"
                     }`}
                   >
                     {columns.map((col, colIdx) => (
                       <td
                         key={`${row.id}-${col.id}`}
-                        className={`px-4 text-sm text-[#1A1A1A] border-b ${isSelected ? "border-[#AFCDBF]" : "border-[#CCCCCC]"} ${
+                        className={`px-4 text-sm text-[#1A1A1A] border-b ${isSelected ? "border-[#C2C7CB]" : "border-[#CCCCCC]"} ${
                           col.sticky ? "sticky z-10" : ""
-                        } ${isSelected ? "bg-[#D2F6E8]" : "bg-white group-hover:bg-[#F7F7F7]"} ${
+                        } ${isSelected ? "bg-[#E8EBED]" : "bg-white group-hover:bg-[#F7F7F7]"} ${
                           col.sticky && colIdx < lastStickyIndex ? "border-r border-r-white" : ""
-                        } ${colIdx === lastStickyIndex ? (isSelected ? "border-r border-r-[#AFCDBF]" : "border-r border-r-[#CCCCCC]") : ""} ${
+                        } ${colIdx === lastStickyIndex ? (isSelected ? "border-r border-r-[#C2C7CB]" : "border-r border-r-[#CCCCCC]") : ""} ${
                           ["actions", "gtin"].includes(col.id) ? "border-r-0" : ""
                         }`}
                         style={{
@@ -842,7 +842,7 @@ export const StoreRoutinesGrid = React.forwardRef<StoreRoutinesGridHandle, Store
                           } ${showActionsOnHover ? "group-hover:opacity-100" : ""}`}>
                             <Popover.Root>
                               <Popover.Trigger asChild>
-                                <button className={`size-[24px] flex items-center justify-center ${isSelected ? 'hover:bg-[#C3E8DA]' : 'hover:bg-[#EAEAEA]'} rounded transition-colors cursor-pointer outline-none border-none bg-transparent`}>
+                                <button className={`size-[24px] flex items-center justify-center ${isSelected ? 'hover:bg-[#CED3D7]' : 'hover:bg-[#EAEAEA]'} rounded transition-colors cursor-pointer outline-none border-none bg-transparent`}>
                                   <svg className="size-[18px]" viewBox="0 0 20 20" fill="none">
                                     <path d={svgPathsMore.p2d3e5d00} fill="#1A1A1A" />
                                   </svg>
