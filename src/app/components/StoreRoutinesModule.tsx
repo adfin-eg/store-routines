@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
+import { Plus } from "lucide-react";
 import FilterIcon from "@/imports/Icon-9-4205";
-import { ItemGroupPanel } from "./ItemGroupPanel";
+import { ItemGroupPanel, ItemGroupPanelHandle } from "./ItemGroupPanel";
 import { StoreRoutinesGrid, STORE_ROUTINES_COLUMNS } from "./StoreRoutinesGrid";
 
 interface QuickFilterPreset {
@@ -25,6 +26,7 @@ const PROMOTIONS_COLUMN_IDS = [
 ];
 
 const DEFAULT_QUICK_FILTER_PRESETS: QuickFilterPreset[] = [
+  { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: DEFAULT_COLUMN_IDS },
   { name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
   { name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
     const first = ["actions", "gtin", "itemText", "localValuesList", "retailPrice", "memberPrice"];
@@ -81,7 +83,8 @@ export const StoreRoutinesModule = ({
   setAttributeFilter,
   data,
   currentWindowStates,
-  onApplyWindowStates
+  onApplyWindowStates,
+  currentStore
 }: {
   isItemPanelOpen: boolean;
   setIsItemPanelOpen: (open: boolean) => void;
@@ -95,11 +98,13 @@ export const StoreRoutinesModule = ({
   data: any[];
   currentWindowStates?: Record<string, any>;
   onApplyWindowStates?: (states: Record<string, any>) => void;
+  currentStore?: string;
 }) => {
+  const panelRef = useRef<ItemGroupPanelHandle>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<string>("All");
-  const [activePresetName, setActivePresetName] = useState<string>("");
+  const [activePresetName, setActivePresetName] = useState<string>("All");
   const [quickFilterPresets, setQuickFilterPresets] = useState<QuickFilterPreset[]>(DEFAULT_QUICK_FILTER_PRESETS);
   const [columnIds, setColumnIds] = useState<string[]>(DEFAULT_COLUMN_IDS);
   const [gridFilterCount, setGridFilterCount] = useState(0);
@@ -128,12 +133,11 @@ export const StoreRoutinesModule = ({
   };
 
   const handleTabChange = (tab: string) => {
-    if (tab === "All") {
-      setActiveTab("All");
+    if (tab === "Custom") {
+      // Custom ("Other") tab reflects ad-hoc filtering (e.g. left-panel group selection);
+      // keep current filters/columns, just mark the tab active and unlink any preset.
+      setActiveTab("Custom");
       setActivePresetName("");
-      setGridFilters({});
-      setGridFilterModes({});
-      setColumnIds(DEFAULT_COLUMN_IDS);
       return;
     }
     const preset = quickFilterPresets.find(p => p.name === tab);
@@ -142,6 +146,10 @@ export const StoreRoutinesModule = ({
     setActivePresetName(tab);
     setGridFilters(preset.filters);
     setGridFilterModes(preset.filterModes ?? {});
+    // Item hierarchy filtering is part of the preset — apply it (clearing the
+    // current group selection when the preset has none).
+    setSelectedGroupIds(new Set(preset.selectedIds ?? []));
+    setExpandedGroupIds(new Set(preset.expandedIds ?? []));
     // Prefer hardcoded column order from DEFAULT_QUICK_FILTER_PRESETS over stored data
     const defaultPreset = DEFAULT_QUICK_FILTER_PRESETS.find(p => p.name === tab);
     const colIds = defaultPreset?.columnIds ?? preset.columnIds;
@@ -168,8 +176,9 @@ export const StoreRoutinesModule = ({
 
   return (
     <div className="flex-1 flex flex-row overflow-hidden min-w-0 relative bg-white">
-      <ItemGroupPanel 
-        isOpen={isItemPanelOpen} 
+      <ItemGroupPanel
+        ref={panelRef}
+        isOpen={isItemPanelOpen}
         onToggle={() => setIsItemPanelOpen(!isItemPanelOpen)} 
         selectedIds={selectedGroupIds} 
         setSelectedIds={setSelectedGroupIds} 
@@ -203,6 +212,7 @@ export const StoreRoutinesModule = ({
         currentGridColumnIds={columnIds}
         onApplyGridColumnIds={setColumnIds}
         activePresetName={activePresetName}
+        storeName={currentStore}
       />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 pt-[30px] pb-[20px] pl-[30px] pr-[30px]">
         <div className="mb-[10px] flex justify-start items-end gap-[30px]">
@@ -212,12 +222,6 @@ export const StoreRoutinesModule = ({
           </button>
           
           <div className="flex gap-2">
-            <ActionButton
-              isActive={activeTab === "All"}
-              onClick={() => handleTabChange("All")}
-            >
-              All
-            </ActionButton>
             {quickFilterPresets.map(preset => (
               <ActionButton
                 key={preset.name}
@@ -227,6 +231,14 @@ export const StoreRoutinesModule = ({
                 {preset.name}
               </ActionButton>
             ))}
+            {activeTab === "Custom" && (
+              <button
+                onClick={() => panelRef.current?.openNewQuickActionPreset()}
+                className="h-[30px] px-2.5 flex items-center justify-center rounded-full border border-transparent bg-[#EAEAEA] hover:bg-[#E0E0E0] text-[#1A1A1A] cursor-pointer transition-colors"
+              >
+                <Plus size={16} className="stroke-[3px]" />
+              </button>
+            )}
           </div>
         </div>
         <StoreRoutinesGrid 

@@ -25,6 +25,7 @@ interface FilterPreset {
   isLocalPromotion?: boolean;
   attributeFilter?: string;
   gridColumnIds?: string[];
+  visibility?: "private" | "common";
 }
 
 
@@ -267,11 +268,16 @@ interface ItemGroupPanelProps {
   currentGridColumnIds?: string[];
   onApplyGridColumnIds?: (ids: string[]) => void;
   activePresetName?: string;
+  storeName?: string;
 }
 
 type SelectionStatus = "all" | "none" | "some";
 
-export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({ 
+export interface ItemGroupPanelHandle {
+  openNewQuickActionPreset: () => void;
+}
+
+export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPanelProps>(({
   isOpen, 
   onToggle,
   selectedIds,
@@ -306,9 +312,14 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
   currentGridColumnIds,
   onApplyGridColumnIds,
   activePresetName,
-}) => {
+  storeName,
+}, ref) => {
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const presetsLoadedRef = React.useRef(false);
+  // Set synchronously when the parent designates a preset via activePresetName, so the
+  // auto-deselect effect below doesn't clear the dropdown during a preset→preset transition
+  // (where selectedPresetName still holds the previous, now-mismatching preset name).
+  const applyingActivePresetRef = React.useRef(false);
   const [newPresetName, setNewPresetName] = useState("");
   const [isPresetsDropdownOpen, setIsPresetsDropdownOpen] = useState(false);
   const [selectedPresetName, setSelectedPresetName] = useState<string>("");
@@ -320,16 +331,36 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
   const [editingPresetOriginalName, setEditingPresetOriginalName] = useState("");
   const [isLoadAsDefault, setIsLoadAsDefault] = useState(false);
   const [isQuickFilter, setIsQuickFilter] = useState(false);
+  const [presetVisibility, setPresetVisibility] = useState<"private" | "common">("private");
   const [hiddenPresetNames, setHiddenPresetNames] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [defaultPresetName, setDefaultPresetName] = useState<string>("");
   const [activePopoverRowId, setActivePopoverRowId] = useState<string | null>(null);
-  
+  const [dragPresetName, setDragPresetName] = useState<string | null>(null);
+  const [dragOverPresetName, setDragOverPresetName] = useState<string | null>(null);
+
   const [renderedPresetName, setRenderedPresetName] = useState<string>(selectedPresetName);
+
+  // Open the "New preset" modal pre-flagged as a quick action (used by the tab group's + button).
+  const openNewQuickActionPreset = () => {
+    setIsEditingPreset(false);
+    setEditingPresetOriginalName("");
+    setNewPresetName("");
+    setIsLoadAsDefault(false);
+    setIsQuickFilter(true);
+    setPresetVisibility("private");
+    setShowSaveModal(true);
+    setIsPresetsDropdownOpen(false);
+  };
+
+  React.useImperativeHandle(ref, () => ({ openNewQuickActionPreset }));
 
   useEffect(() => {
     if (activePresetName !== undefined) {
+      applyingActivePresetRef.current = true;
       setSelectedPresetName(activePresetName);
+      const t = setTimeout(() => { applyingActivePresetRef.current = false; }, 300);
+      return () => clearTimeout(t);
     }
   }, [activePresetName]);
 
@@ -359,7 +390,9 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
     if (initialPresets && initialPresets.length > 0) {
       const existingNames = new Set(loadedPresets.map((p: FilterPreset) => p.name));
       const missing = initialPresets.filter(p => !existingNames.has(p.name));
-      if (missing.length > 0) loadedPresets = [...loadedPresets, ...missing];
+      // Prepend missing defaults (preserving their defined order) so newly added
+      // built-in presets like "All" appear at the front rather than the end.
+      if (missing.length > 0) loadedPresets = [...missing, ...loadedPresets];
       loadedPresets = loadedPresets.map((p: FilterPreset) => {
         const seed = initialPresets.find(ip => ip.name === p.name);
         if (!seed) return p;
@@ -369,6 +402,12 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
         }
         return Object.keys(updates).length > 0 ? { ...p, ...updates } : p;
       });
+    }
+    // "All" always sits leftmost on launch (it can still be reordered within a session).
+    const allIdx = loadedPresets.findIndex((p: FilterPreset) => p.name === "All");
+    if (allIdx > 0) {
+      const [allPreset] = loadedPresets.splice(allIdx, 1);
+      loadedPresets.unshift(allPreset);
     }
     presetsLoadedRef.current = true;
     setPresets(loadedPresets);
@@ -445,8 +484,8 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
   };
 
   useEffect(() => {
-    if (!selectedPresetName || justApplied) return;
-    
+    if (!selectedPresetName || justApplied || applyingActivePresetRef.current) return;
+
     const currentPreset = presets.find(p => p.name === selectedPresetName);
     if (!currentPreset || !isStateMatchingPreset(currentPreset)) {
       setSelectedPresetName("");
@@ -456,8 +495,10 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
   useEffect(() => {
     if (!presetsLoadedRef.current) return;
     localStorage.setItem(presetKey, JSON.stringify(presets));
-    onQuickFilterPresetsChange?.(presets.filter(p => p.isQuickFilter && (showHidden || !hiddenPresetNames.has(p.name))));
-  }, [presets, presetKey, hiddenPresetNames, showHidden]);
+    // Hidden presets are never surfaced as quick view buttons, regardless of the
+    // dropdown's "Show hidden" toggle — that toggle only affects the dropdown list.
+    onQuickFilterPresetsChange?.(presets.filter(p => p.isQuickFilter && !hiddenPresetNames.has(p.name)));
+  }, [presets, presetKey, hiddenPresetNames]);
 
   const handleSavePreset = () => {
     if (!newPresetName.trim()) return;
@@ -478,6 +519,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
       isLocalPromotion: promotionType === "Local",
       attributeFilter,
       gridColumnIds: currentGridColumnIds,
+      visibility: presetVisibility,
     };
 
     if (isLoadAsDefault) {
@@ -521,6 +563,10 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
       onTabChange?.(preset.activeTab);
     } else if (preset.isSystem) {
       onTabChange?.("All");
+    } else if (preset.isQuickFilter && !hiddenPresetNames.has(preset.name)) {
+      // Quick filter presets have a matching button in the tab group — highlight it
+      // so the dropdown and the quick filter buttons stay two-way linked.
+      onTabChange?.(preset.name);
     }
 
     if (!preset.isSystem) {
@@ -575,8 +621,63 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
     setIsEditingPreset(false);
   };
 
+  const toggleHidden = (name: string) => {
+    const willHide = !hiddenPresetNames.has(name);
+    setHiddenPresetNames(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+    // Hiding a preset that is the default removes its default status.
+    if (willHide && defaultPresetName === name) {
+      setDefaultPresetName("");
+      localStorage.removeItem(`${presetKey}_default`);
+      setPresets(prev => prev.map(p => p.name === name ? { ...p, isDefault: false } : p));
+    }
+    setActivePopoverRowId(null);
+  };
+
+  // The browser's default drag ghost is semi-transparent. Supplying our own opaque,
+  // white-backed clone via setDragImage gives a solid preview that follows the cursor.
+  const handleRowDragStart = (e: React.DragEvent, name: string) => {
+    const node = e.currentTarget as HTMLElement;
+    const clone = node.cloneNode(true) as HTMLElement;
+    clone.style.position = "absolute";
+    clone.style.top = "-9999px";
+    clone.style.left = "-9999px";
+    clone.style.width = `${node.offsetWidth}px`;
+    clone.style.opacity = "1";
+    clone.style.backgroundColor = "#FFFFFF";
+    clone.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(clone, 12, 18);
+    // The image is captured synchronously, so the clone can be removed next tick.
+    setTimeout(() => { if (clone.parentNode) clone.parentNode.removeChild(clone); }, 0);
+    setDragPresetName(name);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", name);
+  };
+
+  // Reorder presets by dropping the dragged preset in front of a target preset.
+  // The persisted `presets` array order is the display order (dropdown + quick filter buttons).
+  const reorderPresets = (draggedName: string | null, targetName: string) => {
+    if (!draggedName || draggedName === targetName) return;
+    setPresets(prev => {
+      const arr = [...prev];
+      const from = arr.findIndex(p => p.name === draggedName);
+      if (from === -1) return prev;
+      const [moved] = arr.splice(from, 1);
+      const to = arr.findIndex(p => p.name === targetName);
+      if (to === -1) return prev;
+      arr.splice(to, 0, moved);
+      return arr;
+    });
+  };
+
   const handleClearPresetSelection = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Dismissing only clears the dropdown's selection display; the applied filtering
+    // and the selected quick filter button are kept as-is.
     setSelectedPresetName("");
   };
 
@@ -617,6 +718,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
       allIds.forEach(id => newSelected.add(id));
     }
     setSelectedIds(newSelected);
+    onTabChange?.("Custom");
   };
 
   const toggleExpand = (id: string) => {
@@ -750,6 +852,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                             setEditingPresetOriginalName("");
                             setNewPresetName("");
                             setIsLoadAsDefault(false);
+                            setPresetVisibility("private");
                             setShowSaveModal(true);
                             setIsPresetsDropdownOpen(false);
                           }}
@@ -800,8 +903,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                       >
                         {(() => {
                           const allVisiblePresets = [...presets]
-                            .filter(p => showHidden || !hiddenPresetNames.has(p.name))
-                            .sort((a, b) => a.name.localeCompare(b.name));
+                            .filter(p => showHidden || !hiddenPresetNames.has(p.name));
 
                           return allVisiblePresets.map((preset, index) => {
                             const isDefault = preset.name === defaultPresetName;
@@ -810,11 +912,18 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                             const rowId = `preset-row-${preset.isSystem ? 'system-' : ''}${preset.name.replace(/\s+/g, '-')}`;
                             const isMenuOpen = activePopoverRowId === rowId;
                             const isAnyMenuOpen = !!activePopoverRowId;
+                            const isDragging = dragPresetName === preset.name;
+                            const isDropTarget = !!dragPresetName && dragOverPresetName === preset.name && dragPresetName !== preset.name;
                             return (
-                              <div 
-                                key={preset.isSystem ? `system-${preset.name}` : preset.name} 
+                              <div
+                                key={preset.isSystem ? `system-${preset.name}` : preset.name}
                                 id={rowId}
-                                className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')}`}
+                                draggable={!activePopoverRowId}
+                                onDragStart={(e) => handleRowDragStart(e, preset.name)}
+                                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
+                                onDrop={(e) => { e.preventDefault(); reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
+                                onDragEnd={(e) => { e.currentTarget.style.backgroundColor = ""; setDragPresetName(null); setDragOverPresetName(null); }}
+                                className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
                               >
                                 <div 
                                   onClick={() => applyPreset(preset)}
@@ -832,7 +941,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                                   }`}
                                 >
                                   <span className={`text-[14px] truncate pr-2 font-normal flex items-center text-[#1A1A1A] ${isSelected ? '-ml-[2px]' : ''}`}>
-                                    {preset.name}
+                                    <span className={isHidden ? "line-through" : ""}>{preset.name}</span>
                                     {isDefault && <span className="ml-2 italic font-roboto">(Default)</span>}
                                   </span>
                                   <div className="flex items-center h-full shrink-0">
@@ -866,6 +975,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                                                         setEditingPresetOriginalName(preset.name);
                                                         setIsLoadAsDefault(!!preset.isDefault);
                                                         setIsQuickFilter(!!preset.isQuickFilter);
+                                                        setPresetVisibility(preset.visibility ?? "private");
                                                         setIsEditingPreset(true);
                                                         setShowSaveModal(true);
                                                         setIsPresetsDropdownOpen(false);
@@ -895,16 +1005,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                                                     <button 
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setHiddenPresetNames(prev => {
-                                                          const next = new Set(prev);
-                                                          if (isHidden) {
-                                                            next.delete(preset.name);
-                                                          } else {
-                                                            next.add(preset.name);
-                                                          }
-                                                          return next;
-                                                        });
-                                                        setActivePopoverRowId(null);
+                                                        toggleHidden(preset.name);
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
@@ -947,16 +1048,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
                                                     <button 
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setHiddenPresetNames(prev => {
-                                                          const next = new Set(prev);
-                                                          if (isHidden) {
-                                                            next.delete(preset.name);
-                                                          } else {
-                                                            next.add(preset.name);
-                                                          }
-                                                          return next;
-                                                        });
-                                                        setActivePopoverRowId(null);
+                                                        toggleHidden(preset.name);
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
@@ -989,7 +1081,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
               onClick={handleRemoveSelection}
               className="h-[30px] px-[15px] flex items-center justify-center text-[13px] font-semibold uppercase tracking-[0px] rounded-full transition-colors leading-none font-roboto-condensed cursor-pointer bg-[#595959] text-white hover:bg-[#666666] whitespace-nowrap"
             >
-              Clear {totalFilterCount > 0 && `(${totalFilterCount})`}
+              Clear all {totalFilterCount > 0 && `(${totalFilterCount})`}
             </button>
           </div>
 
@@ -1024,7 +1116,29 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
 
               <div className="relative shrink-0 w-full">
                 <div className="flex flex-col items-start pb-[20px] px-[30px] relative w-full">
-                  <div className="flex flex-col gap-[2px] items-start relative shrink-0 w-full mt-2">
+                  {!isEditingPreset && (
+                    <p className="text-[14px] text-[#1A1A1A] font-roboto leading-snug w-full mt-[10px]">
+                      Presets save the current grid setup, including column visibility, order, filtering and sorting.
+                    </p>
+                  )}
+                  <div className={`flex flex-col gap-[10px] items-start w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
+                    {[
+                      { value: "private" as const, label: "Private" },
+                      { value: "common" as const, label: storeName ? `Common (${storeName})` : "Common" },
+                    ].map((opt) => (
+                      <div
+                        key={opt.value}
+                        className="flex items-center gap-[8px] cursor-pointer select-none group"
+                        onClick={() => setPresetVisibility(opt.value)}
+                      >
+                        <div className={`size-[20px] rounded-full border flex items-center justify-center transition-colors ${presetVisibility === opt.value ? 'border-[#595959]' : 'border-[#ccc] group-hover:border-[#999]'}`}>
+                          {presetVisibility === opt.value && <div className="size-[10px] rounded-full bg-[#595959]" />}
+                        </div>
+                        <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">{opt.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-[2px] items-start relative shrink-0 w-full mt-[20px]">
                     <div className="flex font-roboto font-normal items-start leading-[normal] relative shrink-0 text-[14px] w-full">
                       <p className="min-h-px min-w-px relative text-[#f4635b] whitespace-pre-wrap">
                         <span className="leading-[normal]">*</span>
@@ -1110,7 +1224,7 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
               <div className="relative shrink-0 w-full">
                 <div className="flex flex-col items-start pb-[20px] px-[30px] relative w-full">
                   <p className="text-[14px] text-[#1A1A1A] font-roboto">
-                    This action cannot be undone
+                    The preset "{presetToDelete}" will be deleted.
                   </p>
                 </div>
               </div>
@@ -1137,4 +1251,4 @@ export const ItemGroupPanel: React.FC<ItemGroupPanelProps> = ({
       </AnimatePresence>
     </>
   );
-};
+});

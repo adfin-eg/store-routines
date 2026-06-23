@@ -858,7 +858,7 @@ function AppContent() {
             <Route path="/store-routines" element={
               <StoreRoutinesModule 
                 key={storeRoutinesResetKey}
-                isItemPanelOpen={isItemPanelOpen} setIsItemPanelOpen={setIsItemPanelOpen} gridRef={gridRef} onOpenItemDetails={handleOpenItemDetails} onSelectionChange={handleSelectionChange} onDataChange={setVisibleItems} onOpenNewItemModal={handleOpenNewItemModal} attributeFilter={attributeFilter} setAttributeFilter={setAttributeFilter} data={items} currentWindowStates={getCurrentWindowStates()} onApplyWindowStates={applyWindowStates}
+                isItemPanelOpen={isItemPanelOpen} setIsItemPanelOpen={setIsItemPanelOpen} gridRef={gridRef} onOpenItemDetails={handleOpenItemDetails} onSelectionChange={handleSelectionChange} onDataChange={setVisibleItems} onOpenNewItemModal={handleOpenNewItemModal} attributeFilter={attributeFilter} setAttributeFilter={setAttributeFilter} data={items} currentWindowStates={getCurrentWindowStates()} onApplyWindowStates={applyWindowStates} currentStore={currentStore}
               />
             } />
             <Route path="/items-in-promotions" element={

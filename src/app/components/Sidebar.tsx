@@ -31,7 +31,7 @@ function SidebarItem({
       }`}
     >
       {isSelected && (
-        <div className="absolute left-0 top-0 bottom-0 w-[6px] bg-white" />
+        <div className="absolute left-0 top-0 bottom-0 w-[5px] bg-white" />
       )}
       
       {/* Icon Container - Exactly 30x30 at 11.75px from top */}
