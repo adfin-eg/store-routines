@@ -1,0 +1,3 @@
+export default {
+p4831000: "M3 13V3H13V13H3ZM4 12H12V6H4V12Z",
+}
