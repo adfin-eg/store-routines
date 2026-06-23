@@ -925,18 +925,18 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                 onDragEnd={(e) => { e.currentTarget.style.backgroundColor = ""; setDragPresetName(null); setDragOverPresetName(null); }}
                                 className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
                               >
-                                <div 
-                                  onClick={() => applyPreset(preset)}
-                                  tabIndex={0}
+                                <div
+                                  onClick={() => { if (!isHidden) applyPreset(preset); }}
+                                  tabIndex={isHidden ? -1 : 0}
                                   onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
+                                    if (!isHidden && (e.key === 'Enter' || e.key === ' ')) {
                                       e.preventDefault();
                                       applyPreset(preset);
                                     }
                                   }}
-                                  className={`flex items-center justify-between pl-[16px] pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none cursor-pointer w-[calc(100%-2px)] hover:bg-[#EAEAEA] ${
-                                    isSelected 
-                                      ? 'bg-[#FFFFFF] border-[2px] border-[#373737] pl-[14px]' 
+                                  className={`flex items-center justify-between pl-[16px] pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none w-[calc(100%-2px)] ${isHidden ? 'cursor-default' : 'cursor-pointer hover:bg-[#EAEAEA]'} ${
+                                    isSelected
+                                      ? 'bg-[#FFFFFF] border-[2px] border-[#373737] pl-[14px]'
                                       : (isMenuOpen ? 'bg-[#EAEAEA]' : 'border-0')
                                   }`}
                                 >
