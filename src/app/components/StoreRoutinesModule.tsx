@@ -35,7 +35,7 @@ const PROMOTIONS_COLUMN_IDS = [
 
 const DEFAULT_QUICK_FILTER_PRESETS: QuickFilterPreset[] = [
   { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: ALL_COLUMN_IDS },
-  { name: "Promotions", filters: { promotionPriceFlag: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
+  { name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
   { name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
     const first = ["actions", "gtin", "itemText", "localValuesList", "retailPrice", "memberPrice"];
     return [...first, ...DEFAULT_COLUMN_IDS.filter(id => !first.includes(id))];

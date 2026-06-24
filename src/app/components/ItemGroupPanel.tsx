@@ -436,11 +436,17 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
         return Object.keys(updates).length > 0 ? { ...p, ...updates } : p;
       });
     }
-    // "All" always sits leftmost on launch (it can still be reordered within a session).
+    // Default order on launch: "All" first, "Promotions" second (both can still be
+    // reordered within a session).
     const allIdx = loadedPresets.findIndex((p: FilterPreset) => p.name === "All");
     if (allIdx > 0) {
       const [allPreset] = loadedPresets.splice(allIdx, 1);
       loadedPresets.unshift(allPreset);
+    }
+    const promoIdx = loadedPresets.findIndex((p: FilterPreset) => p.name === "Promotions");
+    if (promoIdx > 1) {
+      const [promoPreset] = loadedPresets.splice(promoIdx, 1);
+      loadedPresets.splice(1, 0, promoPreset);
     }
     presetsLoadedRef.current = true;
     setPresets(loadedPresets);
