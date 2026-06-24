@@ -360,6 +360,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   const [isLoadAsDefault, setIsLoadAsDefault] = useState(false);
   const [isQuickFilter, setIsQuickFilter] = useState(false);
   const [presetVisibility, setPresetVisibility] = useState<"private" | "common">("private");
+  // HQ users switch the dropdown between their private presets and shared (all-store) presets.
+  const [visibilityTab, setVisibilityTab] = useState<"private" | "common">("private");
   const [hiddenPresetNames, setHiddenPresetNames] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [defaultPresetName, setDefaultPresetName] = useState<string>("");
@@ -923,7 +925,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                             setEditingPresetOriginalName("");
                             setNewPresetName("");
                             setIsLoadAsDefault(false);
-                            setPresetVisibility("private");
+                            setPresetVisibility(isHqUser ? visibilityTab : "private");
                             setShowSaveModal(true);
                             setIsPresetsDropdownOpen(false);
                           }}
@@ -968,13 +970,31 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                           </Popover.Portal>
                         </Popover.Root>
                       </div>
-                      
-                      <div 
+
+                      {isHqUser && (
+                        <div className="flex items-center gap-[2px] p-[3px] mx-[8px] mt-[8px] mb-[4px] bg-[#EAEAEA] rounded-full">
+                          {([
+                            { v: "private" as const, l: "Private" },
+                            { v: "common" as const, l: "Shared" },
+                          ]).map(opt => (
+                            <button
+                              key={opt.v}
+                              onClick={() => setVisibilityTab(opt.v)}
+                              className={`flex-1 h-[26px] rounded-full text-[13px] font-roboto transition-colors ${visibilityTab === opt.v ? 'bg-white text-[#1A1A1A] font-medium shadow-sm' : 'text-[#666666] hover:text-[#1A1A1A]'}`}
+                            >
+                              {opt.l}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div
                         className="max-h-[224px] overflow-y-auto custom-scrollbar flex flex-col pt-[5px] pb-[5px]"
                       >
                         {(() => {
                           const allVisiblePresets = [...presets]
-                            .filter(p => showHidden || !hiddenPresetNames.has(p.name));
+                            .filter(p => showHidden || !hiddenPresetNames.has(p.name))
+                            .filter(p => !isHqUser || (p.visibility ?? "private") === visibilityTab);
 
                           return allVisiblePresets.map((preset, index) => {
                             const isDefault = preset.name === defaultPresetName;
@@ -1223,7 +1243,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                     <div className={`flex flex-col gap-[10px] items-start w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
                       {[
                         { value: "private" as const, label: "Private" },
-                        { value: "common" as const, label: storeName ? `Common (${storeName})` : "Common" },
+                        { value: "common" as const, label: "Shared (all stores)" },
                       ].map((opt) => (
                         <div
                           key={opt.value}
