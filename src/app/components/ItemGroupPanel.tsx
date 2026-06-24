@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Plus, MoreHorizontal, Check, GripVertical } from "lucide-react";
+import { X, Plus, MoreHorizontal, Check } from "lucide-react";
 import UiIcon from "../../imports/UiIcon";
 import svgPathsDelete from "@/imports/svg-thb5u7b813";
 import svgPathsEdit from "@/imports/svg-4f8idnkp17";
@@ -958,7 +958,6 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
 
                           return allVisiblePresets.map((preset, index) => {
                             const isDefault = preset.name === defaultPresetName;
-                            const isSelected = preset.name === renderedPresetName;
                             const isHidden = hiddenPresetNames.has(preset.name);
                             const rowId = `preset-row-${preset.isSystem ? 'system-' : ''}${preset.name.replace(/\s+/g, '-')}`;
                             const isMenuOpen = activePopoverRowId === rowId;
@@ -969,9 +968,12 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                               <div
                                 key={preset.isSystem ? `system-${preset.name}` : preset.name}
                                 id={rowId}
+                                draggable={!activePopoverRowId}
+                                onDragStart={(e) => handleRowDragStart(e, preset.name)}
                                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
                                 onDrop={(e) => { e.preventDefault(); reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
-                                className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
+                                onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
+                                className={`flex flex-col group/row ${isMenuOpen ? 'bg-[#EAEAEA]' : ''} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
                               >
                                 <div
                                   onClick={() => { if (!isHidden) applyPreset(preset); }}
@@ -982,28 +984,14 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                       applyPreset(preset);
                                     }
                                   }}
-                                  className={`flex items-center justify-between pl-[16px] pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none w-[calc(100%-2px)] ${isHidden ? 'cursor-default' : 'cursor-pointer hover:bg-[#EAEAEA]'} ${
-                                    isSelected
-                                      ? 'bg-[#FFFFFF] border-[2px] border-[#373737] pl-[14px]'
-                                      : (isMenuOpen ? 'bg-[#EAEAEA]' : 'border-0')
-                                  }`}
+                                  className={`flex items-center justify-between pl-[16px] pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none w-[calc(100%-2px)] border-0 hover:bg-[#EAEAEA] ${isHidden ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${isMenuOpen ? 'bg-[#EAEAEA]' : ''}`}
                                 >
-                                  <span className={`text-[14px] truncate pr-2 font-normal flex items-center text-[#1A1A1A] ${isSelected ? '-ml-[2px]' : ''}`}>
+                                  <span className="text-[14px] truncate pr-2 font-normal flex items-center text-[#1A1A1A]">
                                     <span className={isHidden ? "line-through" : ""}>{preset.name}</span>
                                     {isDefault && <span className="ml-2 italic font-roboto">(Default)</span>}
                                   </span>
                                   <div className="flex items-center h-full shrink-0">
                                     <div className={`opacity-0 group-hover/row:opacity-100 ${isMenuOpen ? 'opacity-100' : ''} transition-opacity flex items-center h-full`}>
-                                      <button
-                                        draggable={!activePopoverRowId}
-                                        onDragStart={(e) => handleRowDragStart(e, preset.name)}
-                                        onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        aria-label="Drag to reorder"
-                                        className="w-[28px] h-full flex items-center justify-center cursor-grab active:cursor-grabbing outline-none hover:bg-[#EAEAEA] group-hover/row:bg-[#EAEAEA]"
-                                      >
-                                        <GripVertical size={16} className="text-[#999999]" />
-                                      </button>
                                       <Popover.Root onOpenChange={(open) => {
                                         setActivePopoverRowId(open ? rowId : null);
                                       }}>
