@@ -35,7 +35,7 @@ const PROMOTIONS_COLUMN_IDS = [
 
 const DEFAULT_QUICK_FILTER_PRESETS: QuickFilterPreset[] = [
   { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: ALL_COLUMN_IDS },
-  { name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
+  { name: "Promotions", filters: { promotionPriceFlag: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
   { name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
     const first = ["actions", "gtin", "itemText", "localValuesList", "retailPrice", "memberPrice"];
     return [...first, ...DEFAULT_COLUMN_IDS.filter(id => !first.includes(id))];
@@ -150,16 +150,15 @@ export const StoreRoutinesModule = ({
     }
     const preset = quickFilterPresets.find(p => p.name === tab);
     if (!preset) return;
+    // Prefer hardcoded filters/columns from DEFAULT_QUICK_FILTER_PRESETS over stored data
+    // so built-in presets stay authoritative even if older values are in localStorage.
+    const defaultPreset = DEFAULT_QUICK_FILTER_PRESETS.find(p => p.name === tab);
     setActiveTab(tab);
     setActivePresetName(tab);
-    setGridFilters(preset.filters);
+    setGridFilters(defaultPreset?.filters ?? preset.filters);
     setGridFilterModes(preset.filterModes ?? {});
-    // Item hierarchy filtering is part of the preset — apply it (clearing the
-    // current group selection when the preset has none).
-    setSelectedGroupIds(new Set(preset.selectedIds ?? []));
-    setExpandedGroupIds(new Set(preset.expandedIds ?? []));
-    // Prefer hardcoded column order from DEFAULT_QUICK_FILTER_PRESETS over stored data
-    const defaultPreset = DEFAULT_QUICK_FILTER_PRESETS.find(p => p.name === tab);
+    // Item hierarchy filtering is detached from presets — leave the current group
+    // selection untouched when applying a preset.
     const colIds = defaultPreset?.columnIds ?? preset.columnIds;
     if (colIds) setColumnIds(colIds);
   };

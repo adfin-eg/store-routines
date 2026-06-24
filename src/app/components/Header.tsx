@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, Link, useSearchParams } from "react-router";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { useUserMode } from "@/app/contexts/UserModeContext";
 import breadcrumbSvgPaths from "@/imports/svg-9eaca977ir";
 import svgPathsBell from "@/imports/svg-rt0k425s7c";
 
@@ -21,6 +22,7 @@ export function Header({
 }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const { userMode, setUserMode, isHqUser } = useUserMode();
   const activeTab = searchParams.get("tab") || "details";
   const isDetailsPage = location.pathname === "/item-details";
   const isStoreRoutinesPage = location.pathname === "/store-routines";
@@ -108,9 +110,9 @@ export function Header({
 
         {/* User Context and Actions Section */}
         <div className="flex items-center gap-[20px] h-[24px]">
-          {/* Store Context (Store Routines only) */}
-          {isStoreRoutinesPage && (
-            <button 
+          {/* Store Context (Store Routines, HQ user only) */}
+          {isStoreRoutinesPage && isHqUser && (
+            <button
               onClick={() => setIsSelectStoreOpen?.(true)}
               className="text-white text-[14px] font-normal underline underline-offset-[5px] decoration-1 decoration-white cursor-pointer outline-none mr-[20px] whitespace-nowrap"
             >
@@ -151,11 +153,31 @@ export function Header({
                 align="end"
                 sideOffset={4}
               >
-                <DropdownMenu.Item 
+                <DropdownMenu.Item
                   onClick={onOpenUserPreferences}
                   className="h-[36px] px-4 flex items-center text-[14px] font-roboto font-normal text-[#1A1A1A] outline-none cursor-pointer focus:bg-[#EAEAEA] transition-colors"
                 >
                   Preferences
+                </DropdownMenu.Item>
+                <div className="h-[1px] bg-[#EAEAEA] mx-0" />
+                <DropdownMenu.Item
+                  onSelect={(e) => { e.preventDefault(); setUserMode("store"); }}
+                  className="h-[36px] px-4 flex items-center gap-[8px] text-[14px] font-roboto font-normal text-[#1A1A1A] outline-none cursor-pointer focus:bg-[#EAEAEA] transition-colors"
+                >
+                  <div className={`size-[16px] rounded-full border flex items-center justify-center shrink-0 ${userMode === "store" ? "border-[#595959]" : "border-[#ccc]"}`}>
+                    {userMode === "store" && <div className="size-[8px] rounded-full bg-[#595959]" />}
+                  </div>
+                  Store user
+                </DropdownMenu.Item>
+                <div className="h-[1px] bg-[#EAEAEA] mx-0" />
+                <DropdownMenu.Item
+                  onSelect={(e) => { e.preventDefault(); setUserMode("hq"); }}
+                  className="h-[36px] px-4 flex items-center gap-[8px] text-[14px] font-roboto font-normal text-[#1A1A1A] outline-none cursor-pointer focus:bg-[#EAEAEA] transition-colors"
+                >
+                  <div className={`size-[16px] rounded-full border flex items-center justify-center shrink-0 ${userMode === "hq" ? "border-[#595959]" : "border-[#ccc]"}`}>
+                    {userMode === "hq" && <div className="size-[8px] rounded-full bg-[#595959]" />}
+                  </div>
+                  HQ user
                 </DropdownMenu.Item>
                 <div className="h-[1px] bg-[#EAEAEA] mx-0" />
                 <DropdownMenu.Item 

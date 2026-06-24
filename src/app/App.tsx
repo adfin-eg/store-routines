@@ -552,22 +552,6 @@ function AppContent() {
   }, [location.pathname, closeAllWindows]);
 
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === 'c' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        setShowPromotionSuccess(true);
-        if (timeoutId) clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => setShowPromotionSuccess(false), 5000);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, []);
-
-  useEffect(() => {
     document.title = "EG Chain";
     
     // Set favicon using Logo-207-132 SVG

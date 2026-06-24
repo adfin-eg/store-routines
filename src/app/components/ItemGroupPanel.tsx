@@ -1,10 +1,36 @@
 import React, { useState, useEffect } from "react";
-import { X, Plus, MoreHorizontal, Check } from "lucide-react";
+import { X, Plus, MoreHorizontal, Check, GripVertical } from "lucide-react";
 import UiIcon from "../../imports/UiIcon";
 import svgPathsDelete from "@/imports/svg-thb5u7b813";
 import svgPathsEdit from "@/imports/svg-4f8idnkp17";
 import * as Popover from "@radix-ui/react-popover";
 import { motion as Motion, AnimatePresence } from "motion/react";
+import { useUserMode } from "@/app/contexts/UserModeContext";
+
+// Friendly labels for the applied-filter chips; unknown keys fall back to a prettified key.
+const FILTER_CHIP_LABELS: Record<string, string> = {
+  promotion: "Promotion",
+  promotionPriceFlag: "Promotion price",
+  memberOffer: "Member offer",
+  mix: "Mix",
+  localItem: "Local item",
+  localValues: "Local values",
+  localValuesList: "Local values",
+  promotionType: "Promotion type",
+  assortment: "Assortment",
+  gtin: "GTIN",
+  itemText: "Item text",
+  retailPrice: "Ordinary price",
+  promotionPrice: "Promotion price",
+  promotionStart: "Promotion start",
+  promotionEnd: "Promotion end",
+  memberPrice: "Member price",
+};
+
+const prettifyFilterKey = (key: string) =>
+  key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
+
+const labelForFilterKey = (key: string) => FILTER_CHIP_LABELS[key] ?? prettifyFilterKey(key);
 
 interface FilterPreset {
   name: string;
@@ -314,6 +340,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   activePresetName,
   storeName,
 }, ref) => {
+  const { isHqUser } = useUserMode();
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const presetsLoadedRef = React.useRef(false);
   // Set synchronously when the parent designates a preset via activePresetName, so the
@@ -400,6 +427,12 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
         if (seed.gridColumnIds !== undefined && p.gridColumnIds === undefined) {
           updates.gridColumnIds = seed.gridColumnIds;
         }
+        // Built-in presets are authoritative: keep their filters in sync with the seed
+        // so older stored values (e.g. Promotions' previous filter) can't go stale and
+        // cause the preset to look unselectable (auto-deselect on a filter mismatch).
+        if (seed.filters !== undefined && JSON.stringify(seed.filters) !== JSON.stringify(p.filters)) {
+          updates.filters = seed.filters;
+        }
         return Object.keys(updates).length > 0 ? { ...p, ...updates } : p;
       });
     }
@@ -411,16 +444,33 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     }
     presetsLoadedRef.current = true;
     setPresets(loadedPresets);
-    onQuickFilterPresetsChange?.(loadedPresets.filter(p => p.isQuickFilter && !hiddenPresetNames.has(p.name)));
-    
-    let initialDefaultName = "";
+
+    // Restore which presets are hidden (persisted so hiding sticks across reloads).
+    let restoredHidden = hiddenPresetNames;
     try {
-      const savedDefault = localStorage.getItem(`${presetKey}_default`);
-      if (savedDefault && savedDefault !== "undefined") {
-        initialDefaultName = savedDefault;
-      } else {
-        // "All" is the default preset on launch when the user hasn't set another.
+      const savedHidden = localStorage.getItem(`${presetKey}_hidden`);
+      if (savedHidden && savedHidden !== "undefined") {
+        restoredHidden = new Set<string>(JSON.parse(savedHidden));
+        setHiddenPresetNames(restoredHidden);
+      }
+    } catch (e) {
+      console.error("Error loading hidden presets", e);
+    }
+    onQuickFilterPresetsChange?.(loadedPresets.filter(p => p.isQuickFilter && !restoredHidden.has(p.name)));
+
+    let initialDefaultName = "All";
+    try {
+      // One-time reset: clear any previously stored default so "All" becomes the
+      // default. Defaults the user sets afterward are then honored as normal.
+      const migrationKey = `${presetKey}_default_reset_v1`;
+      if (!localStorage.getItem(migrationKey)) {
+        localStorage.removeItem(`${presetKey}_default`);
+        localStorage.setItem(migrationKey, "1");
         initialDefaultName = "All";
+      } else {
+        const savedDefault = localStorage.getItem(`${presetKey}_default`);
+        // "All" is the default when the user hasn't set another.
+        initialDefaultName = savedDefault && savedDefault !== "undefined" ? savedDefault : "All";
       }
     } catch (e) {
       console.error("Error loading default preset", e);
@@ -429,14 +479,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   }, [presetKey, showPresets]);
 
   const isStateMatchingPreset = (preset: FilterPreset) => {
-    // Check filters
-    const currentFilters = Array.from(selectedIds).sort();
-    const presetFilters = preset.isSystem ? [] : [...(preset.selectedIds || [])].sort();
-    if (currentFilters.length !== presetFilters.length || currentFilters.some((v, i) => v !== presetFilters[i])) return false;
-
-    const currentExpanded = Array.from(expandedIds).sort();
-    const presetExpanded = preset.isSystem ? [] : [...(preset.expandedIds || [])].sort();
-    if (currentExpanded.length !== presetExpanded.length || currentExpanded.some((v, i) => v !== presetExpanded[i])) return false;
+    // Item hierarchy selection/expansion is detached from presets and intentionally
+    // NOT compared here — changing it never unlinks the selected preset.
 
     // Check tabs and checkboxes
     if (preset.activeTab !== undefined && activeTab !== preset.activeTab) return false;
@@ -501,13 +545,20 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     onQuickFilterPresetsChange?.(presets.filter(p => p.isQuickFilter && !hiddenPresetNames.has(p.name)));
   }, [presets, presetKey, hiddenPresetNames]);
 
+  // Persist hidden presets so hiding sticks across reloads.
+  useEffect(() => {
+    if (!presetsLoadedRef.current) return;
+    localStorage.setItem(`${presetKey}_hidden`, JSON.stringify(Array.from(hiddenPresetNames)));
+  }, [hiddenPresetNames, presetKey]);
+
   const handleSavePreset = () => {
     if (!newPresetName.trim()) return;
     
     const newPreset: FilterPreset = {
       name: newPresetName.trim(),
-      selectedIds: Array.from(selectedIds),
-      expandedIds: Array.from(expandedIds),
+      // Item hierarchy filtering is detached from presets and intentionally not saved.
+      selectedIds: [],
+      expandedIds: [],
       windowStates: currentWindowStates,
       isDefault: isLoadAsDefault,
       isQuickFilter,
@@ -571,9 +622,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     }
 
     if (!preset.isSystem) {
-      setSelectedIds(new Set(preset.selectedIds));
-      setExpandedIds(new Set(preset.expandedIds));
-      
+      // Item hierarchy selection/expansion is detached from presets — leave it untouched.
       if (preset.isMemberOffer !== undefined) onMemberOfferChange?.(preset.isMemberOffer);
       if (preset.isMix !== undefined) onMixChange?.(preset.isMix);
       if (preset.isPromotionPrice !== undefined) onPromotionPriceChange?.(preset.isPromotionPrice);
@@ -584,8 +633,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
       if (preset.gridColumnIds !== undefined) onApplyGridColumnIds?.(preset.gridColumnIds);
     } else {
       // Clear filters for system presets as they are window-only configurations
-      setSelectedIds(new Set());
-      setExpandedIds(new Set());
+      // (item hierarchy selection is detached and left untouched).
       onMemberOfferChange?.(false);
       onMixChange?.(false);
       onPromotionPriceChange?.(false);
@@ -641,7 +689,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   // The browser's default drag ghost is semi-transparent. Supplying our own opaque,
   // white-backed clone via setDragImage gives a solid preview that follows the cursor.
   const handleRowDragStart = (e: React.DragEvent, name: string) => {
-    const node = e.currentTarget as HTMLElement;
+    // The drag source is the grip handle; snapshot the whole row for the drag image.
+    const node = ((e.currentTarget as HTMLElement).closest('[id^="preset-row-"]') as HTMLElement) || (e.currentTarget as HTMLElement);
     const clone = node.cloneNode(true) as HTMLElement;
     clone.style.position = "absolute";
     clone.style.top = "-9999px";
@@ -718,8 +767,9 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     } else {
       allIds.forEach(id => newSelected.add(id));
     }
+    // Item hierarchy filtering is detached from presets — changing it must not
+    // unlink the selected preset or switch the active tab.
     setSelectedIds(newSelected);
-    onTabChange?.("Custom");
   };
 
   const toggleExpand = (id: string) => {
@@ -919,11 +969,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                               <div
                                 key={preset.isSystem ? `system-${preset.name}` : preset.name}
                                 id={rowId}
-                                draggable={!activePopoverRowId}
-                                onDragStart={(e) => handleRowDragStart(e, preset.name)}
                                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
                                 onDrop={(e) => { e.preventDefault(); reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
-                                onDragEnd={(e) => { e.currentTarget.style.backgroundColor = ""; setDragPresetName(null); setDragOverPresetName(null); }}
                                 className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
                               >
                                 <div
@@ -947,6 +994,16 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                   </span>
                                   <div className="flex items-center h-full shrink-0">
                                     <div className={`opacity-0 group-hover/row:opacity-100 ${isMenuOpen ? 'opacity-100' : ''} transition-opacity flex items-center h-full`}>
+                                      <button
+                                        draggable={!activePopoverRowId}
+                                        onDragStart={(e) => handleRowDragStart(e, preset.name)}
+                                        onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        aria-label="Drag to reorder"
+                                        className="w-[28px] h-full flex items-center justify-center cursor-grab active:cursor-grabbing outline-none hover:bg-[#EAEAEA] group-hover/row:bg-[#EAEAEA]"
+                                      >
+                                        <GripVertical size={16} className="text-[#999999]" />
+                                      </button>
                                       <Popover.Root onOpenChange={(open) => {
                                         setActivePopoverRowId(open ? rowId : null);
                                       }}>
@@ -1077,14 +1134,46 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
             )}
           </div>
 
-          <div className="pl-[30px] pr-[20px] mb-[10px]">
-            <button 
-              onClick={handleRemoveSelection}
-              className="h-[30px] px-[15px] flex items-center justify-center text-[13px] font-semibold uppercase tracking-[0px] rounded-full transition-colors leading-none font-roboto-condensed cursor-pointer bg-[#595959] text-white hover:bg-[#666666] whitespace-nowrap"
-            >
-              Clear all {totalFilterCount > 0 && `(${totalFilterCount})`}
-            </button>
-          </div>
+          {(() => {
+            const chips: { id: string; label: string; onClear: () => void }[] = [];
+            Object.entries(gridFilters || {}).forEach(([key, val]) => {
+              if (!val) return;
+              chips.push({
+                id: `grid:${key}`,
+                label: labelForFilterKey(key),
+                onClear: () => {
+                  const next = { ...(gridFilters || {}) };
+                  delete next[key];
+                  onGridFiltersChange?.(next);
+                  // Removing a preset filter means the state no longer matches the
+                  // preset — deselect the quick filter tab.
+                  onTabChange?.("Custom");
+                },
+              });
+            });
+            // Item hierarchy is detached from presets — clearing it must NOT deselect the tab.
+            if (selectedIds.size > 0) {
+              chips.push({ id: "group", label: "Item group", onClear: () => setSelectedIds(new Set()) });
+            }
+            if (attributeFilter) {
+              chips.push({ id: "attribute", label: "Attribute", onClear: () => { onAttributeFilterChange?.(""); onTabChange?.("Custom"); } });
+            }
+            if (chips.length === 0) return null;
+            return (
+              <div className="pl-[30px] pr-[20px] mb-[10px] flex flex-wrap gap-[8px]">
+                {chips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    onClick={chip.onClear}
+                    className="h-[30px] pl-[12px] pr-[8px] flex items-center gap-[6px] text-[13px] font-roboto rounded-full bg-[#EAEAEA] text-[#1A1A1A] hover:bg-[#E0E0E0] transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    {chip.label}
+                    <X className="size-3.5 stroke-[2.5px]" />
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           <div className="flex-1 overflow-y-auto pl-[30px] pr-[20px] pt-[10px] pb-6 custom-scrollbar">
             {renderTree(ITEM_GROUPS)}
@@ -1119,26 +1208,28 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                 <div className="flex flex-col items-start pb-[20px] px-[30px] relative w-full">
                   {!isEditingPreset && (
                     <p className="text-[14px] text-[#1A1A1A] font-roboto leading-snug w-full mt-[10px]">
-                      Presets save the current grid setup, including column visibility, order, filtering and sorting.
+                      Presets include columns, filtering and sorting.
                     </p>
                   )}
-                  <div className={`flex flex-col gap-[10px] items-start w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
-                    {[
-                      { value: "private" as const, label: "Private" },
-                      { value: "common" as const, label: storeName ? `Common (${storeName})` : "Common" },
-                    ].map((opt) => (
-                      <div
-                        key={opt.value}
-                        className="flex items-center gap-[8px] cursor-pointer select-none group"
-                        onClick={() => setPresetVisibility(opt.value)}
-                      >
-                        <div className={`size-[20px] rounded-full border flex items-center justify-center transition-colors ${presetVisibility === opt.value ? 'border-[#595959]' : 'border-[#ccc] group-hover:border-[#999]'}`}>
-                          {presetVisibility === opt.value && <div className="size-[10px] rounded-full bg-[#595959]" />}
+                  {isHqUser && (
+                    <div className={`flex flex-col gap-[10px] items-start w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
+                      {[
+                        { value: "private" as const, label: "Private" },
+                        { value: "common" as const, label: storeName ? `Common (${storeName})` : "Common" },
+                      ].map((opt) => (
+                        <div
+                          key={opt.value}
+                          className="flex items-center gap-[8px] cursor-pointer select-none group"
+                          onClick={() => setPresetVisibility(opt.value)}
+                        >
+                          <div className={`size-[20px] rounded-full border flex items-center justify-center transition-colors ${presetVisibility === opt.value ? 'border-[#595959]' : 'border-[#ccc] group-hover:border-[#999]'}`}>
+                            {presetVisibility === opt.value && <div className="size-[10px] rounded-full bg-[#595959]" />}
+                          </div>
+                          <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">{opt.label}</span>
                         </div>
-                        <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">{opt.label}</span>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-[2px] items-start relative shrink-0 w-full mt-[20px]">
                     <div className="flex font-roboto font-normal items-start leading-[normal] relative shrink-0 text-[14px] w-full">
                       <p className="min-h-px min-w-px relative text-[#f4635b] whitespace-pre-wrap">
