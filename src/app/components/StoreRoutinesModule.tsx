@@ -51,21 +51,36 @@ interface ActionButtonProps {
   onClick?: () => void;
   disabled?: boolean;
   hasIcon?: boolean;
+  draggable?: boolean;
+  onDragStart?: React.DragEventHandler<HTMLButtonElement>;
+  onDragOver?: React.DragEventHandler<HTMLButtonElement>;
+  onDrop?: React.DragEventHandler<HTMLButtonElement>;
+  onDragEnd?: React.DragEventHandler<HTMLButtonElement>;
 }
 
-const ActionButton: React.FC<ActionButtonProps> = ({ 
-  children, 
-  isPrimary = false, 
+const ActionButton: React.FC<ActionButtonProps> = ({
+  children,
+  isPrimary = false,
   isActive = false,
-  className = "", 
-  onClick, 
+  className = "",
+  onClick,
   disabled,
-  hasIcon = false
+  hasIcon = false,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
 }) => {
   return (
-    <button 
+    <button
       onClick={onClick}
       disabled={disabled}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       className={`h-[30px] flex items-center justify-center text-[13px] font-semibold uppercase tracking-[0px] rounded-full transition-colors leading-none font-roboto-condensed cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed px-[15px] min-w-[50px] border whitespace-nowrap ${
       isPrimary 
         ? "bg-[#1C7862] text-white hover:bg-[#248E73] border-[#1C7862] hover:border-[#248E73]" 
@@ -109,6 +124,8 @@ export const StoreRoutinesModule = ({
   currentStore?: string;
 }) => {
   const panelRef = useRef<ItemGroupPanelHandle>(null);
+  const [dragPresetName, setDragPresetName] = useState<string | null>(null);
+  const [dragOverPresetName, setDragOverPresetName] = useState<string | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<string>("All");
@@ -181,6 +198,24 @@ export const StoreRoutinesModule = ({
     setActivePresetName("");
   };
 
+  // Use an opaque clone as the drag image so the button preview following the
+  // cursor isn't semi-transparent (the browser default ghost is translucent).
+  const handleButtonDragStart = (e: React.DragEvent<HTMLButtonElement>, name: string) => {
+    const node = e.currentTarget;
+    const clone = node.cloneNode(true) as HTMLElement;
+    clone.style.position = "absolute";
+    clone.style.top = "-9999px";
+    clone.style.left = "-9999px";
+    clone.style.margin = "0";
+    clone.style.opacity = "1";
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(clone, node.offsetWidth / 2, node.offsetHeight / 2);
+    setTimeout(() => { if (clone.parentNode) clone.parentNode.removeChild(clone); }, 0);
+    setDragPresetName(name);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", name);
+  };
+
   return (
     <div className="flex-1 flex flex-row overflow-hidden min-w-0 relative bg-white">
       <ItemGroupPanel
@@ -229,15 +264,29 @@ export const StoreRoutinesModule = ({
           </button>
           
           <div className="flex gap-2">
-            {quickFilterPresets.map(preset => (
-              <ActionButton
-                key={preset.name}
-                isActive={activeTab === preset.name}
-                onClick={() => handleTabChange(preset.name)}
-              >
-                {preset.name}
-              </ActionButton>
-            ))}
+            {quickFilterPresets.map(preset => {
+              const isDragging = dragPresetName === preset.name;
+              const isDropTarget = !!dragPresetName && dragOverPresetName === preset.name && dragPresetName !== preset.name;
+              return (
+                <div key={preset.name} className="relative flex">
+                  {isDropTarget && (
+                    <div className="absolute -left-[4px] top-0 bottom-0 w-[2px] bg-[#373737] rounded-full pointer-events-none" />
+                  )}
+                  <ActionButton
+                    isActive={activeTab === preset.name}
+                    onClick={() => handleTabChange(preset.name)}
+                    draggable
+                    onDragStart={(e) => handleButtonDragStart(e, preset.name)}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
+                    onDrop={(e) => { e.preventDefault(); panelRef.current?.reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
+                    onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
+                    className={isDragging ? "opacity-50" : ""}
+                  >
+                    {preset.name}
+                  </ActionButton>
+                </div>
+              );
+            })}
             {activeTab === "Custom" && (
               <button
                 onClick={() => panelRef.current?.openNewQuickActionPreset()}

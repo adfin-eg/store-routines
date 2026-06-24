@@ -301,6 +301,7 @@ type SelectionStatus = "all" | "none" | "some";
 
 export interface ItemGroupPanelHandle {
   openNewQuickActionPreset: () => void;
+  reorderPresets: (draggedName: string | null, targetName: string) => void;
 }
 
 export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPanelProps>(({
@@ -380,7 +381,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     setIsPresetsDropdownOpen(false);
   };
 
-  React.useImperativeHandle(ref, () => ({ openNewQuickActionPreset }));
+  React.useImperativeHandle(ref, () => ({ openNewQuickActionPreset, reorderPresets }));
 
   useEffect(() => {
     if (activePresetName !== undefined) {
@@ -692,23 +693,36 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     setActivePopoverRowId(null);
   };
 
-  // The browser's default drag ghost is semi-transparent. Supplying our own opaque,
-  // white-backed clone via setDragImage gives a solid preview that follows the cursor.
+  // The browser's default drag ghost is semi-transparent. Build a clean, fully opaque
+  // drag image and supply it via setDragImage so the row preview is solid.
   const handleRowDragStart = (e: React.DragEvent, name: string) => {
-    // The drag source is the grip handle; snapshot the whole row for the drag image.
     const node = ((e.currentTarget as HTMLElement).closest('[id^="preset-row-"]') as HTMLElement) || (e.currentTarget as HTMLElement);
-    const clone = node.cloneNode(true) as HTMLElement;
-    clone.style.position = "absolute";
-    clone.style.top = "-9999px";
-    clone.style.left = "-9999px";
-    clone.style.width = `${node.offsetWidth}px`;
-    clone.style.opacity = "1";
-    clone.style.backgroundColor = "#FFFFFF";
-    clone.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
-    document.body.appendChild(clone);
-    e.dataTransfer.setDragImage(clone, 12, 18);
-    // The image is captured synchronously, so the clone can be removed next tick.
-    setTimeout(() => { if (clone.parentNode) clone.parentNode.removeChild(clone); }, 0);
+    const ghost = document.createElement("div");
+    ghost.textContent = name;
+    ghost.style.cssText = [
+      "position:fixed",
+      "top:0",
+      "left:0",
+      "transform:translateX(-99999px)",
+      `width:${node.offsetWidth}px`,
+      "box-sizing:border-box",
+      "height:36px",
+      "display:flex",
+      "align-items:center",
+      "padding:0 16px",
+      "background:#FFFFFF",
+      "color:#1A1A1A",
+      "font:14px/1 Roboto, sans-serif",
+      "border:1px solid #CCCCCC",
+      "box-shadow:0 2px 8px rgba(0,0,0,0.15)",
+      "opacity:1",
+      "white-space:nowrap",
+      "z-index:2147483647",
+    ].join(";");
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 12, 18);
+    // The image is captured synchronously, so the ghost can be removed next tick.
+    setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 0);
     setDragPresetName(name);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", name);
