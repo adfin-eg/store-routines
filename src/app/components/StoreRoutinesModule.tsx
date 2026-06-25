@@ -145,6 +145,8 @@ export const StoreRoutinesModule = ({
     filters: p.filters,
     filterModes: p.filterModes ?? {},
     gridColumnIds: p.columnIds,
+    // Built-in presets are shared (available to all stores).
+    visibility: "common" as const,
   })), []);
 
   const handleClearAll = () => {
@@ -174,8 +176,9 @@ export const StoreRoutinesModule = ({
     setActivePresetName(tab);
     setGridFilters(defaultPreset?.filters ?? preset.filters);
     setGridFilterModes(preset.filterModes ?? {});
-    // Item hierarchy filtering is detached from presets — leave the current group
-    // selection untouched when applying a preset.
+    // Item hierarchy selection is part of the preset — apply it.
+    setSelectedGroupIds(new Set(preset.selectedIds ?? []));
+    setExpandedGroupIds(new Set(preset.expandedIds ?? []));
     const colIds = defaultPreset?.columnIds ?? preset.columnIds;
     if (colIds) setColumnIds(colIds);
   };
