@@ -5,6 +5,7 @@ import { ItemGroupPanel, ItemGroupPanelHandle } from "./ItemGroupPanel";
 import { StoreRoutinesGrid, STORE_ROUTINES_COLUMNS } from "./StoreRoutinesGrid";
 
 interface QuickFilterPreset {
+  id?: string;
   name: string;
   filters: Record<string, string>;
   filterModes?: Record<string, string>;
@@ -34,13 +35,13 @@ const PROMOTIONS_COLUMN_IDS = [
 ];
 
 const DEFAULT_QUICK_FILTER_PRESETS: QuickFilterPreset[] = [
-  { name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: ALL_COLUMN_IDS },
-  { name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
-  { name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
+  { id: "All", name: "All", filters: {}, selectedIds: [], expandedIds: [], columnIds: ALL_COLUMN_IDS },
+  { id: "Promotions", name: "Promotions", filters: { promotion: "true" }, selectedIds: [], expandedIds: [], columnIds: PROMOTIONS_COLUMN_IDS },
+  { id: "Local values", name: "Local values", filters: { localValues: "true" }, selectedIds: [], expandedIds: [], columnIds: (() => {
     const first = ["actions", "gtin", "itemText", "localValuesList", "retailPrice", "memberPrice"];
     return [...first, ...DEFAULT_COLUMN_IDS.filter(id => !first.includes(id))];
   })() },
-  { name: "Local items", filters: { localItem: "true" }, selectedIds: [], expandedIds: [], columnIds: DEFAULT_COLUMN_IDS },
+  { id: "Local items", name: "Local items", filters: { localItem: "true" }, selectedIds: [], expandedIds: [], columnIds: DEFAULT_COLUMN_IDS },
 ];
 
 interface ActionButtonProps {
@@ -124,12 +125,13 @@ export const StoreRoutinesModule = ({
   currentStore?: string;
 }) => {
   const panelRef = useRef<ItemGroupPanelHandle>(null);
-  const [dragPresetName, setDragPresetName] = useState<string | null>(null);
-  const [dragOverPresetName, setDragOverPresetName] = useState<string | null>(null);
+  const [dragPresetId, setDragPresetId] = useState<string | null>(null);
+  const [dragOverPresetId, setDragOverPresetId] = useState<string | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<string>("All");
-  const [activePresetName, setActivePresetName] = useState<string>("All");
+  // Identity of the active quick filter preset (by id, so same-name presets are distinct).
+  const [activePresetId, setActivePresetId] = useState<string>("All");
   const [quickFilterPresets, setQuickFilterPresets] = useState<QuickFilterPreset[]>(DEFAULT_QUICK_FILTER_PRESETS);
   const [columnIds, setColumnIds] = useState<string[]>(ALL_COLUMN_IDS);
   const [gridFilterCount, setGridFilterCount] = useState(0);
@@ -157,23 +159,26 @@ export const StoreRoutinesModule = ({
     setExpandedGroupIds(new Set());
     setColumnIds(ALL_COLUMN_IDS);
     setActiveTab("All");
+    setActivePresetId(quickFilterPresets.find(p => p.name === "All")?.id ?? "All");
   };
 
-  const handleTabChange = (tab: string) => {
+  // `presetId` disambiguates same-name presets; falls back to matching by name.
+  const handleTabChange = (tab: string, presetId?: string) => {
     if (tab === "Custom") {
       // Custom ("Other") tab reflects ad-hoc filtering (e.g. left-panel group selection);
       // keep current filters/columns, just mark the tab active and unlink any preset.
       setActiveTab("Custom");
-      setActivePresetName("");
+      setActivePresetId("");
       return;
     }
-    const preset = quickFilterPresets.find(p => p.name === tab);
+    const preset = (presetId ? quickFilterPresets.find(p => p.id === presetId) : undefined)
+      ?? quickFilterPresets.find(p => p.name === tab);
     if (!preset) return;
     // Prefer hardcoded filters/columns from DEFAULT_QUICK_FILTER_PRESETS over stored data
     // so built-in presets stay authoritative even if older values are in localStorage.
-    const defaultPreset = DEFAULT_QUICK_FILTER_PRESETS.find(p => p.name === tab);
-    setActiveTab(tab);
-    setActivePresetName(tab);
+    const defaultPreset = DEFAULT_QUICK_FILTER_PRESETS.find(p => p.name === preset.name);
+    setActiveTab(preset.name);
+    setActivePresetId(preset.id ?? "");
     setGridFilters(defaultPreset?.filters ?? preset.filters);
     setGridFilterModes(preset.filterModes ?? {});
     // Item hierarchy selection is part of the preset — apply it.
@@ -186,24 +191,24 @@ export const StoreRoutinesModule = ({
   const handleFiltersChange = (newFilters: Record<string, string>) => {
     setGridFilters(newFilters);
     setActiveTab("Custom");
-    setActivePresetName("");
+    setActivePresetId("");
   };
 
   const handleFilterModesChange = (modes: Record<string, string>) => {
     setGridFilterModes(modes);
     setActiveTab("Custom");
-    setActivePresetName("");
+    setActivePresetId("");
   };
 
   const handleColumnIdsChange = (ids: string[]) => {
     setColumnIds(ids);
     setActiveTab("Custom");
-    setActivePresetName("");
+    setActivePresetId("");
   };
 
   // Use an opaque clone as the drag image so the button preview following the
   // cursor isn't semi-transparent (the browser default ghost is translucent).
-  const handleButtonDragStart = (e: React.DragEvent<HTMLButtonElement>, name: string) => {
+  const handleButtonDragStart = (e: React.DragEvent<HTMLButtonElement>, id: string) => {
     const node = e.currentTarget;
     const clone = node.cloneNode(true) as HTMLElement;
     clone.style.position = "absolute";
@@ -214,9 +219,9 @@ export const StoreRoutinesModule = ({
     document.body.appendChild(clone);
     e.dataTransfer.setDragImage(clone, node.offsetWidth / 2, node.offsetHeight / 2);
     setTimeout(() => { if (clone.parentNode) clone.parentNode.removeChild(clone); }, 0);
-    setDragPresetName(name);
+    setDragPresetId(id);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", name);
+    e.dataTransfer.setData("text/plain", id);
   };
 
   return (
@@ -246,6 +251,7 @@ export const StoreRoutinesModule = ({
         initialPresets={initialPresets}
         onQuickFilterPresetsChange={(presets) =>
           setQuickFilterPresets(presets.map(p => ({
+            id: p.id,
             name: p.name,
             filters: p.filters ?? {},
             filterModes: p.filterModes,
@@ -256,7 +262,7 @@ export const StoreRoutinesModule = ({
         }
         currentGridColumnIds={columnIds}
         onApplyGridColumnIds={setColumnIds}
-        activePresetName={activePresetName}
+        activePresetId={activePresetId}
         storeName={currentStore}
       />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 pt-[30px] pb-[20px] pl-[30px] pr-[30px]">
@@ -268,21 +274,21 @@ export const StoreRoutinesModule = ({
           
           <div className="flex gap-2">
             {quickFilterPresets.map(preset => {
-              const isDragging = dragPresetName === preset.name;
-              const isDropTarget = !!dragPresetName && dragOverPresetName === preset.name && dragPresetName !== preset.name;
+              const isDragging = dragPresetId === preset.id;
+              const isDropTarget = !!dragPresetId && dragOverPresetId === preset.id && dragPresetId !== preset.id;
               return (
-                <div key={preset.name} className="relative flex">
+                <div key={preset.id ?? preset.name} className="relative flex">
                   {isDropTarget && (
                     <div className="absolute -left-[4px] top-0 bottom-0 w-[2px] bg-[#373737] rounded-full pointer-events-none" />
                   )}
                   <ActionButton
-                    isActive={activeTab === preset.name}
-                    onClick={() => handleTabChange(preset.name)}
+                    isActive={activePresetId === preset.id}
+                    onClick={() => handleTabChange(preset.name, preset.id)}
                     draggable
-                    onDragStart={(e) => handleButtonDragStart(e, preset.name)}
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
-                    onDrop={(e) => { e.preventDefault(); panelRef.current?.reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
-                    onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
+                    onDragStart={(e) => handleButtonDragStart(e, preset.id!)}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetId !== preset.id) setDragOverPresetId(preset.id!); }}
+                    onDrop={(e) => { e.preventDefault(); panelRef.current?.reorderPresetsById(e.dataTransfer.getData("text/plain") || dragPresetId, preset.id!); setDragPresetId(null); setDragOverPresetId(null); }}
+                    onDragEnd={() => { setDragPresetId(null); setDragOverPresetId(null); }}
                     className={isDragging ? "opacity-50" : ""}
                   >
                     {preset.name}

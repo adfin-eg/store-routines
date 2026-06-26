@@ -27,13 +27,21 @@ const FILTER_CHIP_LABELS: Record<string, string> = {
   memberPrice: "Member price",
 };
 
+let presetIdCounter = 0;
+const genPresetId = () =>
+  `p-${Date.now().toString(36)}-${(presetIdCounter++).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
 const prettifyFilterKey = (key: string) =>
   key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
 
 const labelForFilterKey = (key: string) => FILTER_CHIP_LABELS[key] ?? prettifyFilterKey(key);
 
 interface FilterPreset {
+  // Stable unique identity so two presets can share a name (e.g. one private, one shared).
+  id?: string;
   name: string;
+  // Shared presets carry per-language names so non-HQ users see the filter in their language.
+  nameTranslations?: { en?: string; no?: string; sv?: string };
   selectedIds: string[];
   expandedIds: string[];
   windowStates?: Record<string, any>;
@@ -273,7 +281,7 @@ interface ItemGroupPanelProps {
   totalFilterCount?: number;
   presetKey: string;
   activeTab?: string;
-  onTabChange?: (tab: string) => void;
+  onTabChange?: (tab: string, presetId?: string) => void;
   gridFilters?: Record<string, string>;
   onGridFiltersChange?: (filters: Record<string, string>) => void;
   gridFilterModes?: Record<string, string>;
@@ -293,7 +301,7 @@ interface ItemGroupPanelProps {
   onQuickFilterPresetsChange?: (presets: FilterPreset[]) => void;
   currentGridColumnIds?: string[];
   onApplyGridColumnIds?: (ids: string[]) => void;
-  activePresetName?: string;
+  activePresetId?: string;
   storeName?: string;
 }
 
@@ -301,7 +309,7 @@ type SelectionStatus = "all" | "none" | "some";
 
 export interface ItemGroupPanelHandle {
   openNewQuickActionPreset: () => void;
-  reorderPresets: (draggedName: string | null, targetName: string) => void;
+  reorderPresetsById: (draggedId: string | null, targetId: string) => void;
 }
 
 export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPanelProps>(({
@@ -338,7 +346,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   onQuickFilterPresetsChange,
   currentGridColumnIds,
   onApplyGridColumnIds,
-  activePresetName,
+  activePresetId,
   storeName,
 }, ref) => {
   const { isHqUser } = useUserMode();
@@ -348,35 +356,37 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   // auto-deselect effect below doesn't clear the dropdown during a preset→preset transition
   // (where selectedPresetName still holds the previous, now-mismatching preset name).
   const applyingActivePresetRef = React.useRef(false);
-  const [newPresetName, setNewPresetName] = useState("");
+  const [newPresetName, setNewPresetName] = useState(""); // English / primary name
+  const [presetNameNo, setPresetNameNo] = useState(""); // Norwegian
+  const [presetNameSv, setPresetNameSv] = useState(""); // Swedish
   const [isPresetsDropdownOpen, setIsPresetsDropdownOpen] = useState(false);
-  const [selectedPresetName, setSelectedPresetName] = useState<string>("");
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("");
   const [justApplied, setJustApplied] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [presetToDelete, setPresetToDelete] = useState<string>("");
+  const [presetToDeleteId, setPresetToDeleteId] = useState<string>("");
   const [isEditingPreset, setIsEditingPreset] = useState(false);
-  const [editingPresetOriginalName, setEditingPresetOriginalName] = useState("");
+  const [editingPresetOriginalId, setEditingPresetOriginalId] = useState("");
   const [isLoadAsDefault, setIsLoadAsDefault] = useState(false);
   const [isQuickFilter, setIsQuickFilter] = useState(false);
   const [presetVisibility, setPresetVisibility] = useState<"private" | "common">("private");
   // Switch the dropdown between private presets and shared (all-store) presets.
   // Defaults to "common" (shared) since the built-in presets are shared.
   const [visibilityTab, setVisibilityTab] = useState<"private" | "common">("common");
-  const [hiddenPresetNames, setHiddenPresetNames] = useState<Set<string>>(new Set());
+  const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
-  const [defaultPresetName, setDefaultPresetName] = useState<string>("");
+  const [defaultPresetId, setDefaultPresetId] = useState<string>("");
   const [activePopoverRowId, setActivePopoverRowId] = useState<string | null>(null);
-  const [dragPresetName, setDragPresetName] = useState<string | null>(null);
-  const [dragOverPresetName, setDragOverPresetName] = useState<string | null>(null);
 
-  const [renderedPresetName, setRenderedPresetName] = useState<string>(selectedPresetName);
+  const selectedPresetDisplayName = presets.find(p => p.id === selectedPresetId)?.name ?? "";
 
   // Open the "New preset" modal pre-flagged as a quick action (used by the tab group's + button).
   const openNewQuickActionPreset = () => {
     setIsEditingPreset(false);
-    setEditingPresetOriginalName("");
+    setEditingPresetOriginalId("");
     setNewPresetName("");
+    setPresetNameNo("");
+    setPresetNameSv("");
     setIsLoadAsDefault(false);
     setIsQuickFilter(true);
     setPresetVisibility("private");
@@ -384,24 +394,29 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     setIsPresetsDropdownOpen(false);
   };
 
-  React.useImperativeHandle(ref, () => ({ openNewQuickActionPreset, reorderPresets }));
+  React.useImperativeHandle(ref, () => ({ openNewQuickActionPreset, reorderPresetsById }));
 
   useEffect(() => {
-    if (activePresetName !== undefined) {
-      applyingActivePresetRef.current = true;
-      setSelectedPresetName(activePresetName);
-      const t = setTimeout(() => { applyingActivePresetRef.current = false; }, 300);
-      return () => clearTimeout(t);
-    }
-  }, [activePresetName]);
+    if (activePresetId === undefined) return;
+    applyingActivePresetRef.current = true;
+    // Only a real active button (non-empty id) drives the dropdown selection. When the
+    // parent reports no active button ("" / Custom), leave the dropdown selection alone —
+    // it may hold a non-quick-filter preset applied from the dropdown; the auto-deselect
+    // effect clears it if the current state no longer matches.
+    if (activePresetId) setSelectedPresetId(activePresetId);
+    const t = setTimeout(() => { applyingActivePresetRef.current = false; }, 300);
+    return () => clearTimeout(t);
+  }, [activePresetId]);
 
   useEffect(() => {
     if (isPresetsDropdownOpen) {
-      setRenderedPresetName(selectedPresetName);
+      // Open the visibility tab that contains the currently selected preset, so it's visible.
+      const selected = selectedPresetId ? presets.find(p => p.id === selectedPresetId) : undefined;
+      if (selected) setVisibilityTab(selected.visibility ?? "private");
     } else {
       setActivePopoverRowId(null);
     }
-  }, [isPresetsDropdownOpen, selectedPresetName]);
+  }, [isPresetsDropdownOpen]);
 
   useEffect(() => {
     if (!showPresets) return;
@@ -456,23 +471,33 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
       const [promoPreset] = loadedPresets.splice(promoIdx, 1);
       loadedPresets.splice(1, 0, promoPreset);
     }
+    // Backfill stable ids. Existing presets keep id = name (so previously stored
+    // hidden/default values, which were names, still match) — except duplicate names,
+    // where the later one gets a fresh unique id.
+    const usedIds = new Set<string>();
+    loadedPresets = loadedPresets.map((p: FilterPreset) => {
+      let id = p.id;
+      if (!id) id = usedIds.has(p.name) ? genPresetId() : p.name;
+      usedIds.add(id);
+      return p.id === id ? p : { ...p, id };
+    });
     presetsLoadedRef.current = true;
     setPresets(loadedPresets);
 
     // Restore which presets are hidden (persisted so hiding sticks across reloads).
-    let restoredHidden = hiddenPresetNames;
+    let restoredHidden = hiddenPresetIds;
     try {
       const savedHidden = localStorage.getItem(`${presetKey}_hidden`);
       if (savedHidden && savedHidden !== "undefined") {
         restoredHidden = new Set<string>(JSON.parse(savedHidden));
-        setHiddenPresetNames(restoredHidden);
+        setHiddenPresetIds(restoredHidden);
       }
     } catch (e) {
       console.error("Error loading hidden presets", e);
     }
-    onQuickFilterPresetsChange?.(loadedPresets.filter(p => p.isQuickFilter && !restoredHidden.has(p.name)));
+    onQuickFilterPresetsChange?.(loadedPresets.filter(p => p.isQuickFilter && !restoredHidden.has(p.id!)));
 
-    let initialDefaultName = "All";
+    let initialDefaultId = "All";
     try {
       // One-time reset: clear any previously stored default so "All" becomes the
       // default. Defaults the user sets afterward are then honored as normal.
@@ -480,16 +505,16 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
       if (!localStorage.getItem(migrationKey)) {
         localStorage.removeItem(`${presetKey}_default`);
         localStorage.setItem(migrationKey, "1");
-        initialDefaultName = "All";
+        initialDefaultId = "All";
       } else {
         const savedDefault = localStorage.getItem(`${presetKey}_default`);
         // "All" is the default when the user hasn't set another.
-        initialDefaultName = savedDefault && savedDefault !== "undefined" ? savedDefault : "All";
+        initialDefaultId = savedDefault && savedDefault !== "undefined" ? savedDefault : "All";
       }
     } catch (e) {
       console.error("Error loading default preset", e);
     }
-    setDefaultPresetName(initialDefaultName);
+    setDefaultPresetId(initialDefaultId);
   }, [presetKey, showPresets]);
 
   const isStateMatchingPreset = (preset: FilterPreset) => {
@@ -502,8 +527,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     const presetExpanded = preset.isSystem ? [] : [...(preset.expandedIds || [])].sort();
     if (currentExpanded.length !== presetExpanded.length || currentExpanded.some((v, i) => v !== presetExpanded[i])) return false;
 
-    // Check tabs and checkboxes
-    if (preset.activeTab !== undefined && activeTab !== preset.activeTab) return false;
+    // Check checkboxes (activeTab is a UI label, not part of the preset's filter identity).
     if (preset.isMemberOffer !== undefined && isMemberOffer !== preset.isMemberOffer) return false;
     if (preset.isMix !== undefined && isMix !== preset.isMix) return false;
     if (preset.isPromotionPrice !== undefined && isPromotionPrice !== preset.isPromotionPrice) return false;
@@ -549,33 +573,43 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   };
 
   useEffect(() => {
-    if (!selectedPresetName || justApplied || applyingActivePresetRef.current) return;
+    if (!selectedPresetId || justApplied || applyingActivePresetRef.current) return;
 
-    const currentPreset = presets.find(p => p.name === selectedPresetName);
+    const currentPreset = presets.find(p => p.id === selectedPresetId);
     if (!currentPreset || !isStateMatchingPreset(currentPreset)) {
-      setSelectedPresetName("");
+      setSelectedPresetId("");
     }
-  }, [selectedIds, expandedIds, currentWindowStates, selectedPresetName, justApplied, presets, activeTab, isMemberOffer, isMix, isPromotionPrice, promotionType, attributeFilter, gridFilters]);
+  }, [selectedIds, expandedIds, currentWindowStates, selectedPresetId, justApplied, presets, activeTab, isMemberOffer, isMix, isPromotionPrice, promotionType, attributeFilter, gridFilters]);
 
   useEffect(() => {
     if (!presetsLoadedRef.current) return;
     localStorage.setItem(presetKey, JSON.stringify(presets));
     // Hidden presets are never surfaced as quick view buttons, regardless of the
     // dropdown's "Show hidden" toggle — that toggle only affects the dropdown list.
-    onQuickFilterPresetsChange?.(presets.filter(p => p.isQuickFilter && !hiddenPresetNames.has(p.name)));
-  }, [presets, presetKey, hiddenPresetNames]);
+    onQuickFilterPresetsChange?.(presets.filter(p => p.isQuickFilter && !hiddenPresetIds.has(p.id!)));
+  }, [presets, presetKey, hiddenPresetIds]);
 
   // Persist hidden presets so hiding sticks across reloads.
   useEffect(() => {
     if (!presetsLoadedRef.current) return;
-    localStorage.setItem(`${presetKey}_hidden`, JSON.stringify(Array.from(hiddenPresetNames)));
-  }, [hiddenPresetNames, presetKey]);
+    localStorage.setItem(`${presetKey}_hidden`, JSON.stringify(Array.from(hiddenPresetIds)));
+  }, [hiddenPresetIds, presetKey]);
 
   const handleSavePreset = () => {
     if (!newPresetName.trim()) return;
-    
+
+    // Shared presets (HQ) store a name per system language; English is the primary/display name.
+    const isSharedMultiLang = isHqUser && presetVisibility === "common";
+    // For shared presets every language name is required.
+    if (isSharedMultiLang && (!presetNameNo.trim() || !presetNameSv.trim())) return;
+    const nameTranslations = isSharedMultiLang
+      ? { en: newPresetName.trim(), no: presetNameNo.trim(), sv: presetNameSv.trim() }
+      : undefined;
+
     const newPreset: FilterPreset = {
+      id: isEditingPreset && editingPresetOriginalId ? editingPresetOriginalId : genPresetId(),
       name: newPresetName.trim(),
+      nameTranslations,
       selectedIds: Array.from(selectedIds),
       expandedIds: Array.from(expandedIds),
       windowStates: currentWindowStates,
@@ -594,32 +628,30 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     };
 
     if (isLoadAsDefault) {
-      setDefaultPresetName(newPreset.name);
-      localStorage.setItem(`${presetKey}_default`, newPreset.name);
+      setDefaultPresetId(newPreset.id!);
+      localStorage.setItem(`${presetKey}_default`, newPreset.id!);
     }
 
     setPresets(prev => {
-      let filtered = prev;
-      if (isEditingPreset && editingPresetOriginalName) {
-        filtered = prev.filter(p => p.name !== editingPresetOriginalName);
-      } else {
-        filtered = prev.filter(p => p.name !== newPreset.name);
-      }
-      
+      // On edit, replace the original by id; on create, just add (duplicate names allowed).
+      let filtered = isEditingPreset && editingPresetOriginalId
+        ? prev.filter(p => p.id !== editingPresetOriginalId)
+        : prev;
+
       // If this one is default, unset default on all others
       if (newPreset.isDefault) {
         filtered = filtered.map(p => ({ ...p, isDefault: false }));
       }
-      
+
       return [...filtered, newPreset];
     });
 
-    if (isEditingPreset && selectedPresetName === editingPresetOriginalName) {
-      setSelectedPresetName(newPreset.name);
+    if (isEditingPreset && selectedPresetId === editingPresetOriginalId) {
+      setSelectedPresetId(newPreset.id!);
     }
 
     setNewPresetName("");
-    setEditingPresetOriginalName("");
+    setEditingPresetOriginalId("");
     setIsEditingPreset(false);
     setShowSaveModal(false);
     setIsLoadAsDefault(false);
@@ -628,16 +660,16 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
 
   const applyPreset = (preset: FilterPreset) => {
     setJustApplied(true);
-    
-    // Set tab first because handleTabChange in parent might reset other filters
-    if (preset.activeTab !== undefined) {
-      onTabChange?.(preset.activeTab);
-    } else if (preset.isSystem) {
-      onTabChange?.("All");
-    } else if (preset.isQuickFilter && !hiddenPresetNames.has(preset.name)) {
-      // Quick filter presets have a matching button in the tab group — highlight it
-      // so the dropdown and the quick filter buttons stay two-way linked.
-      onTabChange?.(preset.name);
+
+    // Set tab first because handleTabChange in parent might reset other filters.
+    if (preset.isQuickFilter && !preset.isSystem && !hiddenPresetIds.has(preset.id!)) {
+      // Quick filter presets have a matching button in the tab group — highlight the
+      // exact one (by id) so the dropdown and the buttons stay two-way linked.
+      onTabChange?.(preset.name, preset.id);
+    } else {
+      // No quick filter button for this preset — no button is highlighted. The
+      // dropdown selection is tracked separately via selectedPresetId below.
+      onTabChange?.("Custom");
     }
 
     if (!preset.isSystem) {
@@ -668,91 +700,56 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     if (preset.windowStates && onApplyWindowStates) {
       onApplyWindowStates(preset.windowStates, preset.order);
     }
-    setSelectedPresetName(preset.name);
+    setSelectedPresetId(preset.id!);
     setIsPresetsDropdownOpen(false);
     
     // Allow time for state and props to propagate before re-enabling tracking
     setTimeout(() => setJustApplied(false), 300);
   };
 
-  const deletePreset = (name: string) => {
-    setPresets(prev => prev.filter(p => p.name !== name));
-    if (selectedPresetName === name) setSelectedPresetName("");
-    
-    if (defaultPresetName === name) {
-      setDefaultPresetName("");
+  const deletePreset = (id: string) => {
+    setPresets(prev => prev.filter(p => p.id !== id));
+    if (selectedPresetId === id) setSelectedPresetId("");
+
+    if (defaultPresetId === id) {
+      setDefaultPresetId("");
       localStorage.removeItem(`${presetKey}_default`);
     }
 
     setShowSaveModal(false);
     setShowDeleteModal(false);
-    setPresetToDelete("");
+    setPresetToDeleteId("");
     setNewPresetName("");
-    setEditingPresetOriginalName("");
+    setEditingPresetOriginalId("");
     setIsEditingPreset(false);
   };
 
-  const toggleHidden = (name: string) => {
-    const willHide = !hiddenPresetNames.has(name);
-    setHiddenPresetNames(prev => {
+  const toggleHidden = (id: string) => {
+    const willHide = !hiddenPresetIds.has(id);
+    setHiddenPresetIds(prev => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
     // Hiding a preset that is the default removes its default status.
-    if (willHide && defaultPresetName === name) {
-      setDefaultPresetName("");
+    if (willHide && defaultPresetId === id) {
+      setDefaultPresetId("");
       localStorage.removeItem(`${presetKey}_default`);
-      setPresets(prev => prev.map(p => p.name === name ? { ...p, isDefault: false } : p));
+      setPresets(prev => prev.map(p => p.id === id ? { ...p, isDefault: false } : p));
     }
     setActivePopoverRowId(null);
   };
 
-  // The browser's default drag ghost is semi-transparent. Build a clean, fully opaque
-  // drag image and supply it via setDragImage so the row preview is solid.
-  const handleRowDragStart = (e: React.DragEvent, name: string) => {
-    const node = ((e.currentTarget as HTMLElement).closest('[id^="preset-row-"]') as HTMLElement) || (e.currentTarget as HTMLElement);
-    const ghost = document.createElement("div");
-    ghost.textContent = name;
-    ghost.style.cssText = [
-      "position:fixed",
-      "top:0",
-      "left:0",
-      "transform:translateX(-99999px)",
-      `width:${node.offsetWidth}px`,
-      "box-sizing:border-box",
-      "height:36px",
-      "display:flex",
-      "align-items:center",
-      "padding:0 16px",
-      "background:#FFFFFF",
-      "color:#1A1A1A",
-      "font:14px/1 Roboto, sans-serif",
-      "border:1px solid #CCCCCC",
-      "box-shadow:0 2px 8px rgba(0,0,0,0.15)",
-      "opacity:1",
-      "white-space:nowrap",
-      "z-index:2147483647",
-    ].join(";");
-    document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, 12, 18);
-    // The image is captured synchronously, so the ghost can be removed next tick.
-    setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 0);
-    setDragPresetName(name);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", name);
-  };
-
-  // Reorder presets by dropping the dragged preset in front of a target preset.
-  // The persisted `presets` array order is the display order (dropdown + quick filter buttons).
-  const reorderPresets = (draggedName: string | null, targetName: string) => {
-    if (!draggedName || draggedName === targetName) return;
+  // Reorder presets (id-based) by moving the dragged preset in front of the target.
+  // The persisted `presets` array order is the display order of the quick filter buttons.
+  const reorderPresetsById = (draggedId: string | null, targetId: string) => {
+    if (!draggedId || draggedId === targetId) return;
     setPresets(prev => {
       const arr = [...prev];
-      const from = arr.findIndex(p => p.name === draggedName);
+      const from = arr.findIndex(p => p.id === draggedId);
       if (from === -1) return prev;
       const [moved] = arr.splice(from, 1);
-      const to = arr.findIndex(p => p.name === targetName);
+      const to = arr.findIndex(p => p.id === targetId);
       if (to === -1) return prev;
       arr.splice(to, 0, moved);
       return arr;
@@ -763,7 +760,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
     e.stopPropagation();
     // Dismissing only clears the dropdown's selection display; the applied filtering
     // and the selected quick filter button are kept as-is.
-    setSelectedPresetName("");
+    setSelectedPresetId("");
   };
 
   const getAllIds = (group: ItemGroup): string[] => {
@@ -820,7 +817,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   const handleRemoveSelection = () => {
     setSelectedIds(new Set());
     setExpandedIds(new Set());
-    setSelectedPresetName("");
+    setSelectedPresetId("");
     onClearAll?.();
   };
 
@@ -903,11 +900,11 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                   <div
                     className="relative w-full h-[30px] bg-white border border-[#ccc] flex items-center pl-[17px] pr-[3px] cursor-pointer group"
                   >
-                    <span className={`flex-1 text-[14px] truncate select-none ${selectedPresetName ? 'text-[#1A1A1A]' : 'text-[#999999]'}`}>
-                      {isPresetsDropdownOpen ? (selectedPresetName || "") : (selectedPresetName || "Select preset")}
+                    <span className={`flex-1 text-[14px] truncate select-none ${selectedPresetDisplayName ? 'text-[#1A1A1A]' : 'text-[#999999]'}`}>
+                      {isPresetsDropdownOpen ? (selectedPresetDisplayName || "") : (selectedPresetDisplayName || "Select preset")}
                     </span>
                     <div className="flex items-center gap-1">
-                      {selectedPresetName && (
+                      {selectedPresetDisplayName && (
                         <button
                           onClick={handleClearPresetSelection}
                           className="size-[20px] flex items-center justify-center hover:bg-[#F7F7F7] rounded-full cursor-pointer"
@@ -935,10 +932,13 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                         <button 
                           onClick={() => {
                             setIsEditingPreset(false);
-                            setEditingPresetOriginalName("");
+                            setEditingPresetOriginalId("");
                             setNewPresetName("");
+                            setPresetNameNo("");
+                            setPresetNameSv("");
                             setIsLoadAsDefault(false);
-                            setPresetVisibility(visibilityTab);
+                            // Non-HQ users can't choose visibility — their presets are always private.
+                            setPresetVisibility(isHqUser ? visibilityTab : "private");
                             setShowSaveModal(true);
                             setIsPresetsDropdownOpen(false);
                           }}
@@ -1004,7 +1004,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                       >
                         {(() => {
                           const allVisiblePresets = [...presets]
-                            .filter(p => showHidden || !hiddenPresetNames.has(p.name))
+                            .filter(p => showHidden || !hiddenPresetIds.has(p.id!))
                             .filter(p => (p.visibility ?? "private") === visibilityTab);
 
                           if (allVisiblePresets.length === 0) {
@@ -1016,23 +1016,22 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                           }
 
                           return allVisiblePresets.map((preset, index) => {
-                            const isDefault = preset.name === defaultPresetName;
-                            const isHidden = hiddenPresetNames.has(preset.name);
+                            const isDefault = preset.id === defaultPresetId;
+                            const isSelected = preset.id === selectedPresetId;
+                            const isHidden = hiddenPresetIds.has(preset.id!);
+                            // Non-HQ users may only edit/delete their own (private) presets, not shared ones.
+                            const canEditDelete = isHqUser || (preset.visibility ?? "private") === "private";
                             const rowId = `preset-row-${preset.isSystem ? 'system-' : ''}${preset.name.replace(/\s+/g, '-')}`;
-                            const isMenuOpen = activePopoverRowId === rowId;
+                            const isMenuOpen = activePopoverRowId === preset.id;
                             const isAnyMenuOpen = !!activePopoverRowId;
-                            const isDragging = dragPresetName === preset.name;
-                            const isDropTarget = !!dragPresetName && dragOverPresetName === preset.name && dragPresetName !== preset.name;
+                            // Reordering happens on the quick filter buttons (a single flat list).
+                            // The dropdown is split into Private/Shared tabs, so drag-reorder here
+                            // would be relative only to the visible same-visibility presets.
                             return (
                               <div
-                                key={preset.isSystem ? `system-${preset.name}` : preset.name}
+                                key={preset.id}
                                 id={rowId}
-                                draggable={!activePopoverRowId}
-                                onDragStart={(e) => handleRowDragStart(e, preset.name)}
-                                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverPresetName !== preset.name) setDragOverPresetName(preset.name); }}
-                                onDrop={(e) => { e.preventDefault(); reorderPresets(e.dataTransfer.getData("text/plain") || dragPresetName, preset.name); setDragPresetName(null); setDragOverPresetName(null); }}
-                                onDragEnd={() => { setDragPresetName(null); setDragOverPresetName(null); }}
-                                className={`flex flex-col group/row ${isMenuOpen ? 'bg-[#EAEAEA]' : ''} ${isDragging ? 'opacity-50' : ''} ${isDropTarget ? 'shadow-[inset_0_2px_0_0_#373737]' : ''}`}
+                                className={`flex flex-col group/row ${isSelected ? 'bg-[#FFFFFF]' : (isMenuOpen ? 'bg-[#EAEAEA]' : '')}`}
                               >
                                 <div
                                   onClick={() => { if (!isHidden) applyPreset(preset); }}
@@ -1043,16 +1042,20 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                       applyPreset(preset);
                                     }
                                   }}
-                                  className={`flex items-center justify-between pl-[16px] pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none w-[calc(100%-2px)] border-0 hover:bg-[#EAEAEA] ${isHidden ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${isMenuOpen ? 'bg-[#EAEAEA]' : ''}`}
+                                  className={`flex items-center justify-between pr-0 ml-[1px] group h-[36px] min-h-[36px] outline-none w-[calc(100%-2px)] hover:bg-[#EAEAEA] focus-visible:outline-none ${isHidden ? 'cursor-default' : 'cursor-pointer'} ${
+                                    isSelected
+                                      ? 'bg-[#FFFFFF] border-[2px] border-[#373737] pl-[14px]'
+                                      : (isMenuOpen ? 'bg-[#EAEAEA] pl-[16px]' : 'border-0 pl-[16px]')
+                                  }`}
                                 >
-                                  <span className="text-[14px] truncate pr-2 font-normal flex items-center text-[#1A1A1A]">
+                                  <span className={`text-[14px] truncate pr-2 font-normal flex items-center text-[#1A1A1A] ${isSelected ? '-ml-[2px]' : ''}`}>
                                     <span className={isHidden ? "line-through" : ""}>{preset.name}</span>
                                     {isDefault && <span className="ml-2 italic font-roboto">(Default)</span>}
                                   </span>
                                   <div className="flex items-center h-full shrink-0">
                                     <div className={`opacity-0 group-hover/row:opacity-100 ${isMenuOpen ? 'opacity-100' : ''} transition-opacity flex items-center h-full`}>
                                       <Popover.Root onOpenChange={(open) => {
-                                        setActivePopoverRowId(open ? rowId : null);
+                                        setActivePopoverRowId(open ? preset.id! : null);
                                       }}>
                                         <Popover.Trigger asChild>
                                           <button 
@@ -1072,12 +1075,15 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                             <div className="flex flex-col py-1">
                                               {!preset.isSystem ? (
                                                 <>
+                                                  {canEditDelete && (
                                                   <Popover.Close asChild>
-                                                    <button 
+                                                    <button
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setNewPresetName(preset.name);
-                                                        setEditingPresetOriginalName(preset.name);
+                                                        setNewPresetName(preset.nameTranslations?.en ?? preset.name);
+                                                        setPresetNameNo(preset.nameTranslations?.no ?? "");
+                                                        setPresetNameSv(preset.nameTranslations?.sv ?? "");
+                                                        setEditingPresetOriginalId(preset.id!);
                                                         setIsLoadAsDefault(!!preset.isDefault);
                                                         setIsQuickFilter(!!preset.isQuickFilter);
                                                         setPresetVisibility(preset.visibility ?? "private");
@@ -1090,13 +1096,14 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       Edit
                                                     </button>
                                                   </Popover.Close>
+                                                  )}
                                                   {!isDefault && (
                                                     <Popover.Close asChild>
                                                       <button 
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          setDefaultPresetName(preset.name);
-                                                          localStorage.setItem(`${presetKey}_default`, preset.name);
+                                                          setDefaultPresetId(preset.id!);
+                                                          localStorage.setItem(`${presetKey}_default`, preset.id!);
                                                           setActivePopoverRowId(null);
                                                           setIsPresetsDropdownOpen(false);
                                                         }}
@@ -1110,18 +1117,19 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                     <button 
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        toggleHidden(preset.name);
+                                                        toggleHidden(preset.id!);
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
                                                       {isHidden ? "Show" : "Hide"}
                                                     </button>
                                                   </Popover.Close>
+                                                  {canEditDelete && (
                                                   <Popover.Close asChild>
-                                                    <button 
+                                                    <button
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setPresetToDelete(preset.name);
+                                                        setPresetToDeleteId(preset.id!);
                                                         setShowDeleteModal(true);
                                                         setIsPresetsDropdownOpen(false);
                                                       }}
@@ -1130,6 +1138,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       Delete
                                                     </button>
                                                   </Popover.Close>
+                                                  )}
                                                 </>
                                               ) : (
                                                 <>
@@ -1138,8 +1147,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       <button 
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          setDefaultPresetName(preset.name);
-                                                          localStorage.setItem(`${presetKey}_default`, preset.name);
+                                                          setDefaultPresetId(preset.id!);
+                                                          localStorage.setItem(`${presetKey}_default`, preset.id!);
                                                           setActivePopoverRowId(null);
                                                           setIsPresetsDropdownOpen(false);
                                                         }}
@@ -1153,7 +1162,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                     <button 
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        toggleHidden(preset.name);
+                                                        toggleHidden(preset.id!);
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
@@ -1258,47 +1267,82 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                     </p>
                   )}
                   {isHqUser && (
-                    <div className={`w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
-                      <div className="flex items-center gap-[2px] p-[3px] bg-[#EAEAEA] rounded-full">
-                        {([
-                          { value: "private" as const, label: "Private" },
-                          { value: "common" as const, label: "Shared" },
-                        ]).map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setPresetVisibility(opt.value)}
-                            className={`flex-1 h-[26px] rounded-full text-[13px] font-roboto transition-colors ${presetVisibility === opt.value ? 'bg-white text-[#1A1A1A] font-medium shadow-sm' : 'text-[#666666] hover:text-[#1A1A1A]'}`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                    <div className={`flex flex-col gap-[10px] items-start w-full ${isEditingPreset ? 'mt-[10px]' : 'mt-[20px]'}`}>
+                      {([
+                        { value: "private" as const, label: "Private" },
+                        { value: "common" as const, label: "Shared (all stores)" },
+                      ]).map((opt) => (
+                        <div
+                          key={opt.value}
+                          className="flex items-center gap-[8px] cursor-pointer select-none group"
+                          onClick={() => setPresetVisibility(opt.value)}
+                        >
+                          <div className={`size-[20px] rounded-full border flex items-center justify-center transition-colors ${presetVisibility === opt.value ? 'border-[#595959]' : 'border-[#ccc] group-hover:border-[#999]'}`}>
+                            {presetVisibility === opt.value && <div className="size-[10px] rounded-full bg-[#595959]" />}
+                          </div>
+                          <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">{opt.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isHqUser && presetVisibility === "common" ? (
+                    // Shared presets: name per system language so non-HQ users see it localized.
+                    <div className="flex flex-col gap-[12px] items-start w-full mt-[20px]">
+                      {([
+                        { lang: "English", value: newPresetName, set: setNewPresetName, required: true, focus: true },
+                        { lang: "Norwegian", value: presetNameNo, set: setPresetNameNo, required: true, focus: false },
+                        { lang: "Swedish", value: presetNameSv, set: setPresetNameSv, required: true, focus: false },
+                      ]).map((f) => (
+                        <div key={f.lang} className="flex flex-col gap-[2px] items-start relative shrink-0 w-full">
+                          <div className="flex font-roboto font-normal items-start leading-[normal] relative shrink-0 text-[14px] w-full">
+                            <p className="min-h-px min-w-px relative whitespace-pre-wrap">
+                              {f.required && <span className="leading-[normal] text-[#f4635b]">*</span>}
+                              <span className="leading-[normal] text-[#666666]">{f.required ? ` ${f.lang}` : f.lang}</span>
+                            </p>
+                          </div>
+                          <div className="h-[30px] relative shrink-0 w-full">
+                            <input
+                              type="text"
+                              autoFocus={f.focus}
+                              value={f.value}
+                              onFocus={(e) => e.currentTarget.select()}
+                              onChange={(e) => f.set(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSavePreset();
+                                if (e.key === "Escape") setShowSaveModal(false);
+                                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') e.currentTarget.select();
+                              }}
+                              className="selection:bg-[#373737] selection:text-white absolute bg-white border border-[#ccc] inset-0 px-[8px] font-roboto text-[14px] text-[#1A1A1A] focus:outline-none focus:border-2 focus:border-[#373737]"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-[2px] items-start relative shrink-0 w-full mt-[20px]">
+                      <div className="flex font-roboto font-normal items-start leading-[normal] relative shrink-0 text-[14px] w-full">
+                        <p className="min-h-px min-w-px relative text-[#f4635b] whitespace-pre-wrap">
+                          <span className="leading-[normal]">*</span>
+                          <span className="leading-[normal] text-[#666666]">{` Name`}</span>
+                        </p>
+                      </div>
+                      <div className="h-[30px] relative shrink-0 w-full">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={newPresetName}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) => setNewPresetName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSavePreset();
+                            if (e.key === "Escape") { setShowSaveModal(false); setNewPresetName(""); }
+                            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') e.currentTarget.select();
+                          }}
+                          className="selection:bg-[#373737] selection:text-white absolute bg-white border border-[#ccc] inset-0 px-[8px] font-roboto text-[14px] text-[#1A1A1A] focus:outline-none focus:border-2 focus:border-[#373737]"
+                        />
                       </div>
                     </div>
                   )}
-                  <div className="flex flex-col gap-[2px] items-start relative shrink-0 w-full mt-[20px]">
-                    <div className="flex font-roboto font-normal items-start leading-[normal] relative shrink-0 text-[14px] w-full">
-                      <p className="min-h-px min-w-px relative text-[#f4635b] whitespace-pre-wrap">
-                        <span className="leading-[normal]">*</span>
-                        <span className="leading-[normal] text-[#666666]">{` Name`}</span>
-                      </p>
-                    </div>
-                    <div className="h-[30px] relative shrink-0 w-full">
-                      <input 
-                        type="text"
-                        autoFocus
-                        value={newPresetName}
-                        onFocus={(e) => e.currentTarget.select()}
-                        onChange={(e) => setNewPresetName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSavePreset();
-                          if (e.key === "Escape") { setShowSaveModal(false); setNewPresetName(""); }
-                          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') e.currentTarget.select();
-                        }}
-                        className="selection:bg-[#373737] selection:text-white absolute bg-white border border-[#ccc] inset-0 px-[8px] font-roboto text-[14px] text-[#1A1A1A] focus:outline-none focus:border-2 focus:border-[#373737]"
-                      />
-                    </div>
-                  </div>
 
                   <div
                     className="flex items-center gap-[8px] mt-[15px] cursor-pointer select-none group"
@@ -1311,7 +1355,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                         </svg>
                       )}
                     </div>
-                    <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">Show as quick action</span>
+                    <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">Show as quick filter</span>
                   </div>
                 </div>
               </div>
@@ -1343,7 +1387,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setShowDeleteModal(false); setPresetToDelete(""); }}
+              onClick={() => { setShowDeleteModal(false); setPresetToDeleteId(""); }}
               className="absolute inset-0 bg-black/40"
             />
             
@@ -1362,7 +1406,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
               <div className="relative shrink-0 w-full">
                 <div className="flex flex-col items-start pb-[20px] px-[30px] relative w-full">
                   <p className="text-[14px] text-[#1A1A1A] font-roboto">
-                    The preset "{presetToDelete}" will be deleted.
+                    The preset "{presets.find(p => p.id === presetToDeleteId)?.name ?? ""}" will be deleted.
                   </p>
                 </div>
               </div>
@@ -1370,13 +1414,13 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
               <div className="bg-white relative shrink-0 w-full">
                   <div className="flex flex-row items-center justify-end px-[20px] pb-[20px] pt-[10px] gap-[8px]">
                     <button 
-                      onClick={() => { setShowDeleteModal(false); setPresetToDelete(""); }}
+                      onClick={() => { setShowDeleteModal(false); setPresetToDeleteId(""); }}
                       className="h-[30px] px-[15px] flex items-center justify-center text-[13px] font-semibold uppercase tracking-[0px] rounded-full transition-colors leading-none font-roboto-condensed cursor-pointer bg-[#EAEAEA] text-[#1A1A1A] hover:bg-[#E0E0E0] whitespace-nowrap"
                     >
                       cancel
                     </button>
                     <button 
-                      onClick={() => deletePreset(presetToDelete)}
+                      onClick={() => deletePreset(presetToDeleteId)}
                       className="h-[30px] px-[15px] flex items-center justify-center text-[13px] font-semibold uppercase tracking-[0px] rounded-full transition-colors leading-none font-roboto-condensed cursor-pointer bg-[#DB3751] text-white hover:bg-[#C22D43] whitespace-nowrap"
                     >
                       Delete
