@@ -372,7 +372,10 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   const [presetVisibility, setPresetVisibility] = useState<"private" | "common">("private");
   // Switch the dropdown between private presets and shared (all-store) presets.
   // Defaults to "common" (shared) since the built-in presets are shared.
-  const [visibilityTab, setVisibilityTab] = useState<"private" | "common">("common");
+  // HQ users curate shared presets, so they default to the Shared tab; store users primarily
+  // manage their own presets, so they default to Private (otherwise the shared default preset
+  // "All" would land them on Shared and hide their own presets).
+  const [visibilityTab, setVisibilityTab] = useState<"private" | "common">(isHqUser ? "common" : "private");
   const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<string>>(new Set());
   // Per-user local override (like hidden): a non-HQ user's personal quick-view choices.
   // id -> true (force into the bar) / false (force out), overriding the preset's own
@@ -422,9 +425,15 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
 
   useEffect(() => {
     if (isPresetsDropdownOpen) {
-      // Open the visibility tab that contains the currently selected preset, so it's visible.
-      const selected = selectedPresetId ? presets.find(p => p.id === selectedPresetId) : undefined;
-      if (selected) setVisibilityTab(selected.visibility ?? "private");
+      // HQ: open the visibility tab containing the currently selected preset, so it's visible.
+      // Store users always land on Private (their own presets) — the active default preset is
+      // shared ("All"), which would otherwise drag them onto Shared and hide their presets.
+      if (isHqUser) {
+        const selected = selectedPresetId ? presets.find(p => p.id === selectedPresetId) : undefined;
+        if (selected) setVisibilityTab(selected.visibility ?? "private");
+      } else {
+        setVisibilityTab("private");
+      }
     } else {
       setActivePopoverRowId(null);
     }
