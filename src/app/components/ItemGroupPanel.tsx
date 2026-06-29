@@ -1130,52 +1130,8 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                             <div className="flex flex-col py-1">
                                               {!preset.isSystem ? (
                                                 <>
-                                                  {/* A hidden preset only offers "Show" — all other actions are gated on !isHidden. */}
-                                                  {/* 1. Set as default / Remove default — toggles the preset's default; removing reverts to "All". */}
-                                                  {!isHidden && (
-                                                  <Popover.Close asChild>
-                                                    <button
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        const nextDefault = isDefault ? "All" : preset.id!;
-                                                        setDefaultPresetId(nextDefault);
-                                                        localStorage.setItem(`${presetKey}_default`, nextDefault);
-                                                        setActivePopoverRowId(null);
-                                                        setIsPresetsDropdownOpen(false);
-                                                      }}
-                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
-                                                    >
-                                                      {isDefault ? "Remove default" : "Set as default"}
-                                                    </button>
-                                                  </Popover.Close>
-                                                  )}
-                                                  {/* 2. Show / Hide quick view */}
-                                                  {!isHidden && showQuickViewToggle && (
-                                                  <Popover.Close asChild>
-                                                    <button
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        toggleQuickView(preset);
-                                                      }}
-                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
-                                                    >
-                                                      {isQuickViewActive ? "Hide quick view" : "Show quick view"}
-                                                    </button>
-                                                  </Popover.Close>
-                                                  )}
-                                                  {/* 3. Hide / Show (dropdown list visibility) */}
-                                                  <Popover.Close asChild>
-                                                    <button
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        toggleHidden(preset.id!);
-                                                      }}
-                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
-                                                    >
-                                                      {isHidden ? "Show preset" : "Hide preset"}
-                                                    </button>
-                                                  </Popover.Close>
-                                                  {/* 4. Edit */}
+                                                  {/* A hidden preset only offers "Unhide preset" — all other actions are gated on !isHidden. */}
+                                                  {/* 1. Edit */}
                                                   {!isHidden && canEditDelete && (
                                                   <Popover.Close asChild>
                                                     <button
@@ -1198,6 +1154,50 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                     </button>
                                                   </Popover.Close>
                                                   )}
+                                                  {/* 2. Pin / Unpin (quick view) */}
+                                                  {!isHidden && showQuickViewToggle && (
+                                                  <Popover.Close asChild>
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleQuickView(preset);
+                                                      }}
+                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
+                                                    >
+                                                      {isQuickViewActive ? "Unpin" : "Pin"}
+                                                    </button>
+                                                  </Popover.Close>
+                                                  )}
+                                                  {/* 3. Make default / Remove default — toggles the preset's default; removing reverts to "All". */}
+                                                  {!isHidden && (
+                                                  <Popover.Close asChild>
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const nextDefault = isDefault ? "All" : preset.id!;
+                                                        setDefaultPresetId(nextDefault);
+                                                        localStorage.setItem(`${presetKey}_default`, nextDefault);
+                                                        setActivePopoverRowId(null);
+                                                        setIsPresetsDropdownOpen(false);
+                                                      }}
+                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
+                                                    >
+                                                      {isDefault ? "Remove default" : "Make default"}
+                                                    </button>
+                                                  </Popover.Close>
+                                                  )}
+                                                  {/* 4. Hide / Unhide preset (dropdown list visibility) */}
+                                                  <Popover.Close asChild>
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleHidden(preset.id!);
+                                                      }}
+                                                      className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
+                                                    >
+                                                      {isHidden ? "Unhide preset" : "Hide preset"}
+                                                    </button>
+                                                  </Popover.Close>
                                                   {/* 5. Delete */}
                                                   {!isHidden && canEditDelete && (
                                                   <Popover.Close asChild>
@@ -1229,7 +1229,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                         }}
                                                         className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                       >
-                                                        Set as default
+                                                        Make default
                                                       </button>
                                                     </Popover.Close>
                                                   )}
@@ -1241,7 +1241,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
-                                                      {isHidden ? "Show preset" : "Hide preset"}
+                                                      {isHidden ? "Unhide preset" : "Hide preset"}
                                                     </button>
                                                   </Popover.Close>
                                                 </>
@@ -1430,7 +1430,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                         </svg>
                       )}
                     </div>
-                    <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">Show quick view</span>
+                    <span className="text-[14px] text-[#1A1A1A] font-roboto whitespace-nowrap">Pin to quick filters</span>
                   </div>
                 </div>
               </div>
