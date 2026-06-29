@@ -1195,7 +1195,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
-                                                      {isHidden ? "Unhide preset" : "Hide preset"}
+                                                      {isHidden ? "Unhide" : "Hide"}
                                                     </button>
                                                   </Popover.Close>
                                                   {/* 5. Delete */}
@@ -1241,7 +1241,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                       }}
                                                       className="text-left text-[14px] font-normal text-[#1A1A1A] hover:bg-[#EAEAEA] relative outline-none cursor-pointer flex items-center h-[36px] w-full px-[16px] font-roboto whitespace-nowrap"
                                                     >
-                                                      {isHidden ? "Unhide preset" : "Hide preset"}
+                                                      {isHidden ? "Unhide" : "Hide"}
                                                     </button>
                                                   </Popover.Close>
                                                 </>
