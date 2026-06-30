@@ -425,13 +425,18 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
 
   useEffect(() => {
     if (isPresetsDropdownOpen) {
-      // HQ: open the visibility tab containing the currently selected preset, so it's visible.
-      // Store users always land on Private (their own presets) — the active default preset is
-      // shared ("All"), which would otherwise drag them onto Shared and hide their presets.
-      if (isHqUser) {
-        const selected = selectedPresetId ? presets.find(p => p.id === selectedPresetId) : undefined;
-        if (selected) setVisibilityTab(selected.visibility ?? "private");
-      } else {
+      // Open the visibility tab containing the currently selected preset, so it's visible.
+      // Exception for store users: the built-in default preset ("All") is shared, so honoring
+      // its visibility would drag them onto Shared and hide their own presets. For that case
+      // (a system preset with no explicit user selection) fall back to Private instead.
+      const selected = selectedPresetId ? presets.find(p => p.id === selectedPresetId) : undefined;
+      if (selected) {
+        if (!isHqUser && selected.isSystem) {
+          setVisibilityTab("private");
+        } else {
+          setVisibilityTab(selected.visibility ?? "private");
+        }
+      } else if (!isHqUser) {
         setVisibilityTab("private");
       }
     } else {

@@ -247,7 +247,7 @@ export function Footer({
       id: "create",
       label: "Create",
       isPrimary: true,
-      hasPlusIcon: true,
+      hasIcon: true,
       popoverOpen: isCreateOpen,
       onPopoverOpenChange: setIsCreateOpen,
       popoverContent: (
