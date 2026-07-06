@@ -10,7 +10,7 @@ The primary focus is the **Store routines** module. It also touches the **Items*
 ## Stack
 
 - React 18.3.1 + Vite 6 + TypeScript
-- Tailwind CSS v4 (via `@tailwindcss/vite`) + shadcn/ui (Radix primitives) 
+- Tailwind CSS v4 (via `@tailwindcss/vite`) + shadcn/ui (Radix primitives)
 - React Router v7, `motion` (Framer Motion), Recharts, Sonner, react-hook-form
 - `@/` is aliased to `./src` (see `vite.config.ts` and `tsconfig.json`)
 

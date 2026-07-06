@@ -264,6 +264,14 @@ export const StoreRoutinesModule = ({
         onApplyGridColumnIds={setColumnIds}
         activePresetId={activePresetId}
         storeName={currentStore}
+        onDefaultLoaded={(defaultPresetId) => {
+          // The user removed the default preset: load the hidden default (same config as
+          // "All", which the grid already starts with) but highlight no quick-filter button.
+          if (defaultPresetId === "") {
+            setActiveTab("");
+            setActivePresetId("");
+          }
+        }}
       />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 pt-[30px] pb-[20px] pl-[30px] pr-[30px]">
         <div className="mb-[10px] flex justify-start items-end gap-[30px]">

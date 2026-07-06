@@ -303,6 +303,9 @@ interface ItemGroupPanelProps {
   onApplyGridColumnIds?: (ids: string[]) => void;
   activePresetId?: string;
   storeName?: string;
+  // Called once after presets load with the persisted default preset id: the id of the
+  // default preset, or "" when the user removed the default (load the hidden default).
+  onDefaultLoaded?: (defaultPresetId: string) => void;
 }
 
 type SelectionStatus = "all" | "none" | "some";
@@ -348,6 +351,7 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
   onApplyGridColumnIds,
   activePresetId,
   storeName,
+  onDefaultLoaded,
 }, ref) => {
   const { isHqUser } = useUserMode();
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -413,14 +417,18 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
 
   useEffect(() => {
     if (activePresetId === undefined) return;
-    applyingActivePresetRef.current = true;
-    // Only a real active button (non-empty id) drives the dropdown selection. When the
-    // parent reports no active button ("" / Custom), leave the dropdown selection alone —
-    // it may hold a non-quick-filter preset applied from the dropdown; the auto-deselect
-    // effect clears it if the current state no longer matches.
-    if (activePresetId) setSelectedPresetId(activePresetId);
-    const t = setTimeout(() => { applyingActivePresetRef.current = false; }, 300);
-    return () => clearTimeout(t);
+    // Only guard the auto-deselect window while an actual preset is being applied
+    // (non-empty id). When the parent reports no active button ("" / Custom) — e.g. the
+    // user filtered the grid so it no longer matches the preset — do NOT set the guard,
+    // so the auto-deselect effect can immediately clear a now-mismatching dropdown
+    // selection. Setting it here would suppress that effect for 300ms with nothing to
+    // re-trigger it afterward, leaving the dropdown stuck as selected.
+    if (activePresetId) {
+      applyingActivePresetRef.current = true;
+      setSelectedPresetId(activePresetId);
+      const t = setTimeout(() => { applyingActivePresetRef.current = false; }, 300);
+      return () => clearTimeout(t);
+    }
   }, [activePresetId]);
 
   useEffect(() => {
@@ -549,13 +557,23 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
         initialDefaultId = "All";
       } else {
         const savedDefault = localStorage.getItem(`${presetKey}_default`);
-        // "All" is the default when the user hasn't set another.
-        initialDefaultId = savedDefault && savedDefault !== "undefined" ? savedDefault : "All";
+        // null = never set → fall back to the built-in "All" default. An empty string
+        // means the user explicitly removed the default → no default preset (the app
+        // loads the hidden default, which for now mirrors "All", with no button selected).
+        initialDefaultId = savedDefault === null || savedDefault === "undefined" ? "All" : savedDefault;
       }
     } catch (e) {
       console.error("Error loading default preset", e);
     }
     setDefaultPresetId(initialDefaultId);
+    if (initialDefaultId === "") {
+      // No default: don't preselect any preset in the dropdown either. The parent keeps
+      // the grid's initial (hidden-default = "All") config but highlights no quick button.
+      setSelectedPresetId("");
+      onDefaultLoaded?.("");
+    } else {
+      onDefaultLoaded?.(initialDefaultId);
+    }
   }, [presetKey, showPresets]);
 
   const isStateMatchingPreset = (preset: FilterPreset) => {
@@ -1182,13 +1200,15 @@ export const ItemGroupPanel = React.forwardRef<ItemGroupPanelHandle, ItemGroupPa
                                                     </button>
                                                   </Popover.Close>
                                                   )}
-                                                  {/* 3. Make default / Remove default — toggles the preset's default; removing reverts to "All". */}
+                                                  {/* 3. Make default / Remove default — toggles the preset's default. Removing
+                                                       clears the default entirely ("") so the app loads the hidden default with no
+                                                       preset selected, rather than reverting to "All". */}
                                                   {!isHidden && (
                                                   <Popover.Close asChild>
                                                     <button
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        const nextDefault = isDefault ? "All" : preset.id!;
+                                                        const nextDefault = isDefault ? "" : preset.id!;
                                                         setDefaultPresetId(nextDefault);
                                                         localStorage.setItem(`${presetKey}_default`, nextDefault);
                                                         setActivePopoverRowId(null);
